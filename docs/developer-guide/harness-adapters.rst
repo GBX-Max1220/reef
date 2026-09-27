@@ -21,13 +21,13 @@ the agent's tools (``native_tool``) and its responses to loop events
 +--------------+-----------------------------------------------------------+-------------------------------------------+
 | ``claude``   | ``primary`` → ``claude/settings.json``                    | npm ``@anthropic-ai/claude-code`` 2.1.257 |
 +--------------+-----------------------------------------------------------+-------------------------------------------+
-| ``codex``    | ``primary`` → ``codex/config.toml``                       | npm ``@openai/codex`` 0.152.1             |
+| ``codex``    | ``primary`` → ``codex/config.toml``                       | npm ``@openai/codex`` 0.153.4             |
 +--------------+-----------------------------------------------------------+-------------------------------------------+
 | ``dsh``      | ``primary`` → ``dsh/profiles/headless/cordis.patch.yml``, | npm ``@deepseek-ai/dsh`` 0.1.2-alpha.5    |
 |              | ``env`` → ``dsh/.env``                                    |                                           |
 +--------------+-----------------------------------------------------------+-------------------------------------------+
-| ``hermes``   | ``primary`` → ``hermes/config.yaml``                      | git ``NousResearch/hermes-agent``         |
-|              |                                                           | at ``v2026.8.31`` (0.21.0)                |
+| ``hermes``   | ``primary`` → ``hermes/config.yaml``,                     | git ``NousResearch/hermes-agent``         |
+|              | ``env`` → ``hermes/.env``                                 | at ``v2026.8.31`` (0.21.0)                |
 +--------------+-----------------------------------------------------------+-------------------------------------------+
 | ``native``   | ``primary`` → ``native/config.json``,                     | none: ``reef-native`` ships with reef     |
 |              | ``models`` → ``native/models.json``                       |                                           |
@@ -35,6 +35,65 @@ the agent's tools (``native_tool``) and its responses to loop events
 | ``terminus`` | ``primary`` → ``terminus/config.json``                    | none: ``reef-terminus`` ships with reef,  |
 |              |                                                           | reef-eval ships with reef-infra           |
 +--------------+-----------------------------------------------------------+-------------------------------------------+
+
+Codex model metadata
+~~~~~~~~~~~~~~~~~~~~
+
+For Codex, Reef reads the selected upstream model's ``context_length`` and
+``supported_parameters`` from ``GET /v1/models`` before routing calls through
+Reef. This is the metadata shape served by OpenRouter. Successful lookups are
+cached in the service process; discovery uses the upstream credential and a
+five-second timeout. Other adapters do not make this discovery request.
+
+Endpoints without these fields can provide explicit values under
+``evolution.model_metadata``, keyed by the exact model name:
+
+.. code:: yaml
+
+   evolution:
+     adapter: codex
+     model_metadata:
+       local-model:
+         context_window: 64000
+         reasoning: false
+
+A Python ``ModelBinding`` accepts ``metadata=ModelMetadata(64000, False)``;
+a named ``evolution.models`` binding accepts the same fields under ``metadata``.
+Values in ``evolution.model_metadata`` take precedence over discovery. Missing
+or unavailable metadata leaves Codex's existing fallback behavior intact; Reef
+does not invent a model's context window. Restart the service to refresh cached
+provider metadata. A scenario model override resolves the new model separately.
+
+The binding renders ``codex/models.json`` and a relative ``model_catalog_json``
+reference, so both evaluation episodes and installed clients read the same
+capabilities after relocation. Codex retains its own context safety margin and
+compaction policy. Custom-model entries keep the pinned Codex unknown-model
+instructions, standard shell tools, and low/medium/high effort when reasoning
+is supported. The catalog includes all bundled models, so selecting another
+model with ``--model`` or the interactive picker retains its native instructions
+and tools, including ``gpt-6-astra``. Provider-prefixed names such as
+``openai/gpt-6-astra`` retain the same native configuration.
+Explicit and discovered capabilities override the selected model's
+context window and reasoning support even when its name matches a bundled model;
+other native fields and supported reasoning levels remain intact.
+``codex/default_instructions.md`` records the effective unknown-model prompt
+exported with this adapter configuration. It is derived from
+`OpenAI Codex rust-v0.153.4 <https://github.com/openai/codex/blob/rust-v0.153.4/codex-rs/models-manager/prompt.md>`__,
+under the Apache-2.0 license, with SHA-256
+``3b08633fa672906666659d764864dfda1d7af5b5111ea5817c8f46e5de4e1a8d``.
+Codex removes instructions for tools disabled by the adapter from the source
+prompt. A real-binary regression compares the resulting request instructions
+with and without metadata. ``codex/bundled_models.json`` is configuration data
+exported from the same Apache-2.0-licensed CLI with
+``codex debug models --bundled``. Its SHA-256 is
+``661ed96cf0542e8ee117f1ddfd879f416cc05dc96dd1955249a13c04a313ba5e``.
+Keep both resources synchronized with the Codex install pin; the real-binary
+regression compares the complete bundled catalog, including instructions and
+tools. Rendering reads these packaged resources without starting Codex or
+making a network request.
+Tree rules and skills are still added normally. Tree entries may supply the
+same capability fields through the ``models`` config target, but may not set
+an arbitrary catalog path or inject native Codex model fields.
 
 Terminus 2
 ~~~~~~~~~~
@@ -694,10 +753,35 @@ Descriptor fields
   render path. ``files.tree`` is an optional entries-list path for agents
   that reconcile the live tree.
 - ``trajectory`` specifies the session log's path and reader format.
+  ``final_assistant_text`` extracts assistant replies from flat messages,
+  pi's ``message`` events, and Codex's ``response_item.payload`` messages,
+  including ``output_text`` parts. Reefine uses this text for episode scoring;
+  user messages, tool outputs, and reasoning events are not answers.
 - ``env`` points the agent's state into the episode root, substituting
   ``{root}``. For install scripts and ``reef-<adapter>`` wrappers, one
   variable must relocate a directory above the primary config file using
   ``{root}/<dir>``. Terminus relocates the root itself and has no wrapper.
+- ``client_env`` lists variables the ``reef-<adapter>`` wrapper adds when a
+  person runs the binary. That run gets only the relocating ``env`` entry,
+  so what an interactive run needs goes here. An example is turning off the
+  binary's own updater while Reef pins its version: ``PI_SKIP_VERSION_CHECK``
+  for ``pi``, and for ``claude`` both ``DISABLE_AUTOUPDATER`` (the background
+  updater) and ``DISABLE_UPDATES`` (its ``update``, ``upgrade``, and
+  ``install`` commands, which would otherwise install the latest release
+  over the person's own ``claude``). The ``claude`` episode ``env`` sets both
+  too. A variable the shell sets wins. Claude Code applies the ``env`` block
+  of ``settings.json`` over the environment, so the ``claude`` quirks reject
+  a tree that sets either one there.
+- ``client_args`` lists arguments the wrapper puts ahead of the person's own,
+  for a setting the rendered tree must not undo. ``claude`` passes
+  ``--settings '{"disableDeepLinkRegistration":"disable"}'``. Claude Code
+  skips a whole ``settings.json`` that fails its schema, and an interactive
+  run could then point the person's ``claude-cli://`` link handler at the
+  pinned binary. A ``--settings`` the person passes replaces it.
+- ``client_version_args`` lists first arguments that get no ``client_args``:
+  the binary's version flags, which start no session. ``claude`` names
+  ``--version``, ``-v``, and ``-V``, because Claude Code prints its version
+  early only when nothing is ahead of the flag, and takes ``-V`` only there.
 - ``install`` pins the vendor install: ``kind`` (``npm`` or editable-venv
   ``git``), ``package``, ``version`` (as reported by ``--version``), and
   ``binary_path`` below the install prefix. A git install also names
