@@ -197,6 +197,14 @@ Reviewers evaluate the change at the appropriate level:
 - operational cost and observability; and
 - long-term maintenance burden.
 
+For documentation changes, reviewers must apply the
+[Documentation review checklist](../AGENTS.md#documentation-review-checklist)
+to the complete affected sections and read the whole page when its structure
+changes. Check the author's Documentation impact explanation against the
+change. Identify specific obstacles to understanding, such as using a concept
+before defining it or omitting a prerequisite, rather than only asking for
+clearer writing.
+
 Review feedback should be actionable and identify whether it is blocking,
 optional, or suitable for a follow-up. Authors should respond to substantive
 comments and may respectfully challenge a request with technical reasoning.
