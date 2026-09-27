@@ -196,6 +196,16 @@ def test_invalid_readiness_commands_are_rejected(ready):
         (["--model", "ollama/demo", "--upstream-modle", "typo"], "unknown configuration flag"),
         (["--model", "ollama/demo", "--services", "[]"], "unknown configuration flag"),
         (["--model", "ollama/demo", "--inference-timeout-s", "0"], "must be positive"),
+        (
+            ["--model", "gpt-5.5", "--upstream-url", "https://chatgpt.com/backend-api", "--upstream-api", "chatgpt"]
+            + ["--upstream-api-key", "provider-secret"],
+            "Codex CLI's ChatGPT sign-in",
+        ),
+        (
+            ["--model", "gpt-5.5", "--upstream-url", "https://chatgpt.com/backend-api", "--upstream-api", "chatgpt"]
+            + ["--host", "0.0.0.0"],
+            "loopback",
+        ),
     ],
 )
 def test_invalid_provider_inputs_fail_before_downloads_or_processes(tmp_path, monkeypatch, capsys, options, match):

@@ -153,6 +153,26 @@ def test_an_expired_sign_in_reaches_the_caller_with_the_backend_message(tmp_path
 
 
 @pytest.mark.unit
+def test_the_chatgpt_upstream_builds_the_chatgpt_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from reef.service.assembly import _upstream_runtime
+    from reef.service.deploy.service_config import ServiceConfig
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    settings = ServiceConfig(
+        recipe="recipe",
+        upstream_url="https://chatgpt.com/backend-api",
+        upstream_model="gpt-5.5",
+        upstream_api="chatgpt",
+    )
+    runtime = _upstream_runtime(settings)
+    assert isinstance(runtime, ChatGPTProxyRuntime)
+    assert (runtime.model_path, runtime.api) == ("gpt-5.5", "responses")
+    handler = runtime.inference_handler
+    assert isinstance(handler, ChatGPTInferenceHandler)
+    assert handler.sign_in.path == tmp_path / "auth.json"
+
+
+@pytest.mark.unit
 def test_the_runtime_serves_the_responses_dialect(tmp_path: Path) -> None:
     runtime = ChatGPTProxyRuntime(
         model_path="gpt-5.5", base_url="https://chatgpt.com/backend-api", sign_in=signed_in(tmp_path)

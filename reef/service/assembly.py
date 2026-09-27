@@ -19,6 +19,7 @@ from typing import Any
 
 from reef.artifact.git_lfs import GitLFSRepositoryBackend
 from reef.dispatcher import Dispatcher
+from reef.inference.chatgpt import CHATGPT_UPSTREAM_API, ChatGPTProxyRuntime, CodexSignIn
 from reef.inference.http import InferenceProxyRuntime
 from reef.observability import build_experiment_tracker, build_record_observer
 from reef.recipe import Recipe, WeightTrainingRecipe
@@ -99,6 +100,13 @@ def _upstream_runtime(settings: ServiceConfig) -> InferenceRuntime | None:
     ``REEF_UPSTREAM_URL`` environment)."""
     if not settings.upstream_url:
         return None
+    if settings.upstream_api == CHATGPT_UPSTREAM_API:
+        return ChatGPTProxyRuntime(
+            model_path=settings.upstream_model or "",
+            base_url=settings.upstream_url,
+            sign_in=CodexSignIn.from_environment(os.environ),
+            inference_timeout_s=settings.inference_timeout_s,
+        )
     return InferenceProxyRuntime(
         model_path=settings.upstream_model or "",
         base_url=settings.upstream_url,
@@ -292,12 +300,14 @@ def build_dispatcher(
     on the evaluation routes alone, since those calls run candidate code, and
     ``hold_local_cycles`` holds its local cycles until the service answers. A
     recipe of one component calls its runtime's endpoint directly, as it did
-    before composites, and neither applies to it.
+    before composites, and neither applies to it, unless the upstream is a
+    ChatGPT plan: that is signed in only inside the service, so its calls come
+    back to the service as a composite's do.
     """
     selected_recipe = _require_non_empty(settings.recipe, "reef.recipe")
     env = os.environ if environ is None else environ
     recipe = _serving_recipe(selected_recipe, settings, env, connector)
-    calls_service = isinstance(recipe, CompositeRecipe)
+    calls_service = isinstance(recipe, CompositeRecipe) or settings.upstream_api == CHATGPT_UPSTREAM_API
     if calls_service:
         # A composite's evaluation calls come back to this Reef, so they sample the release it serves.
         served_url = settings.served_url or default_served_url(settings.host, settings.port)

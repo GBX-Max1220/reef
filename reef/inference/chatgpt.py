@@ -24,6 +24,8 @@ from reef.artifact.artifact import Artifact
 from reef.inference.http import HttpInferenceHandler, InferenceProxyRuntime, RequestHeadersFactory
 from reef.runtime.interfaces import InferenceHandler, UpstreamStatusError
 
+#: The ``inference.upstream_api`` value that selects this upstream.
+CHATGPT_UPSTREAM_API = "chatgpt"
 RESPONSES_PATH = "/v1/responses"
 BACKEND_PATH = "/codex/responses"
 SIGN_IN_HINT = "sign in with `codex login`"
@@ -120,6 +122,7 @@ class ChatGPTInferenceHandler(HttpInferenceHandler):
             timeout_s=timeout_s,
             error_label="ChatGPT backend",
         )
+        self.sign_in = sign_in
 
     def _post_arguments(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         if path != RESPONSES_PATH:
@@ -179,6 +182,7 @@ class ChatGPTProxyRuntime(InferenceProxyRuntime):
 
 
 __all__ = [
+    "CHATGPT_UPSTREAM_API",
     "ChatGPTInferenceHandler",
     "ChatGPTProxyRuntime",
     "ChatGPTRequestHeaders",

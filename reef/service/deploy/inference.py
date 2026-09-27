@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import socket
 import sys
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from reef.inference.chatgpt import CHATGPT_UPSTREAM_API
 from reef.inference.http import PROVIDER_APIS
 from reef.runtime.executor.arguments import native_arguments
 from reef.service.deploy.config_utils import DeployConfigError
@@ -245,8 +247,23 @@ def assemble_provider_services(config: dict[str, Any]) -> None:
         raise DeployConfigError(
             "provider startup requires a non-empty --reef.host and --reef.port between 1 and 65535"
         )
-    if settings.upstream_api not in PROVIDER_APIS:
-        raise DeployConfigError("--inference.upstream-api must be openai, responses, or anthropic")
+    if settings.upstream_api not in (*PROVIDER_APIS, CHATGPT_UPSTREAM_API):
+        raise DeployConfigError("--inference.upstream-api must be openai, responses, anthropic, or chatgpt")
+    if settings.upstream_api == CHATGPT_UPSTREAM_API:
+        if settings.upstream_api_key:
+            raise DeployConfigError(
+                "--inference.upstream-api chatgpt signs in with the Codex CLI's ChatGPT sign-in (codex login);"
+                " drop --inference.upstream-api-key"
+            )
+        try:
+            loopback = settings.host == "localhost" or ipaddress.ip_address(settings.host).is_loopback
+        except ValueError:
+            loopback = False
+        if not loopback:
+            raise DeployConfigError(
+                "--inference.upstream-api chatgpt serves one person's ChatGPT plan: --reef.host must be a loopback"
+                " address"
+            )
     if settings.inference_timeout_s <= 0:
         raise DeployConfigError("--inference.timeout-s must be positive")
     config["services"] = [http_service(config, settings)]

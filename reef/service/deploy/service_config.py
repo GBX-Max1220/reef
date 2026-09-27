@@ -108,9 +108,10 @@ class ServiceConfig:
     upstream_model: str | None = config_option(
         None, public_path=("inference", "upstream_model"), help="Model name requested from the upstream provider."
     )
-    #: The provider's API dialect: ``openai`` (default), ``responses``, or ``anthropic``.
+    #: The provider's API dialect: ``openai`` (default), ``responses``, or ``anthropic``; or ``chatgpt``, a
+    #: person's ChatGPT plan through the Codex CLI's sign-in, which serves the ``responses`` dialect.
     upstream_api: str = config_option(
-        "openai", public_path=("inference", "upstream_api"), help="Provider API dialect."
+        "openai", public_path=("inference", "upstream_api"), help="Provider API dialect, or chatgpt."
     )
     inference_timeout_s: float = config_option(
         300.0, public_path=("inference", "timeout_s"), help="Inference request timeout in seconds."
