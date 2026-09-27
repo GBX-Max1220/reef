@@ -82,6 +82,22 @@ trajectory handling still use the shared episode code.
 DeepSeek Harness
 ~~~~~~~~~~~~~~~~
 
+Run the web interface
+^^^^^^^^^^^^^^^^^^^^^
+
+After installing a dsh harness, start its browser interface:
+
+.. code:: bash
+
+   reef-dsh web
+
+Stop it with Ctrl-C. The wrapper waits for dsh to exit, removes the temporary
+session copy, and exits with dsh's status (130 after Ctrl-C), without a traceback.
+The headless profile is used for evaluation episodes.
+
+Rendered files and profiles
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The ``dsh`` adapter runs ``dsh --profile headless "<task>"`` and relocates
 the agent's home through ``DSH_HOME``. dsh combines its bundle layers with a
 user patch layer: a YAML list addressed by plugin id. The adapter accepts
@@ -101,37 +117,17 @@ those settings. Node paths and transformations are:
   It uses ``disable-model-invocation: true`` and runs as ``/name``; dsh has no
   separate command surface.
 
-  When the command text carries its own frontmatter, the adapter reads it
-  the way dsh does: between two ``---`` lines that may end in a carriage
-  return, as YAML 1.2, where ``Yes`` and ``1:30`` are strings. It keeps the
-  keys, sets ``disable-model-invocation: true``, and removes
-  ``user-invocable`` and the camelCase keys dsh rejects (``userInvocable``,
-  ``disableModelInvocation``, ``modelInvocable``), so the model never runs a
-  command and the person always can. A ``name`` that is not a skill name, or
-  a ``description`` that is empty or not a string, is written the way a
-  missing one is, since dsh ignores the file otherwise. Every value is
-  written so that YAML 1.2 reads it back with its type. A value tagged ``!``
-  or ``!!str`` is a string, as it is to dsh, and an empty or null block
-  counts as a mapping with no keys. Rendering rejects frontmatter that does
-  not parse, nests too deeply to read, holds any other tag, or is not a
-  mapping.
 - ``code_extension`` becomes a plugin module referenced by relative path
   from the patch layer.
 
 The model binding uses an ``llm-pi-ai`` route. Its ``apiKeyEnv`` names the
 key supplied through the ``env`` config target, dsh's ``.env`` launch layer.
 
-dsh has no terminal interface a person can use, so a person runs the tree
-in the browser with ``reef-dsh web`` and stops it with Ctrl-C. The signal
-reaches dsh too, so the wrapper waits for dsh to exit, removes its
-temporary copy, and exits with the status of dsh (130 after Ctrl-C) and no
-traceback.
-
 The ``web`` target is that profile's patch layer. It carries the same
 defaults as the headless patch, is checked the same way, and gets the model
-binding too, so the wrapper points it at its proxy. The web template
-compresses its session log, and a compressed profile rejects a sessions
-root that holds plain logs. The ``web_manifest`` target is the profile's
+binding too, so the wrapper points it at its proxy. The upstream web template compresses session logs. Reef disables compression
+in both profiles so they can share the sessions root; a compressed profile
+would reject the headless profile's plain logs. The ``web_manifest`` target is the profile's
 ``package.json`` with ``patchReload: startup``: the manifest dsh writes for
 a new web profile sets ``live``, and with it ``dsh web`` exits at start.
 
@@ -143,6 +139,40 @@ headless profile's directory (``../headless/extensions/<name>.mjs``). A
 ``client_env`` entry, where ``{root}`` stands for the install root. Both
 profiles then list the tree's commands and not the person's
 ``~/.agents/skills``. A shell that sets ``DSH_AGENTS_HOME`` keeps its own.
+
+Command frontmatter
+^^^^^^^^^^^^^^^^^^^
+
+For an ``agent_command`` named ``review``, a minimal body is:
+
+.. code:: text
+
+   ---
+   name: review
+   description: Review the current changes.
+   ---
+   Review the changes and report correctness problems.
+
+The adapter enforces ``disable-model-invocation: true``. The command remains
+available to the user as ``/review`` and is not available for the model to invoke.
+
+Parsing and normalization
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When the command text carries its own frontmatter, the adapter reads it
+the way dsh does: between two ``---`` lines that may end in a carriage
+return, as YAML 1.2, where ``Yes`` and ``1:30`` are strings. It keeps the
+keys, sets ``disable-model-invocation: true``, and removes
+``user-invocable`` and the camelCase keys dsh rejects (``userInvocable``,
+``disableModelInvocation``, ``modelInvocable``), so the model never runs a
+command and the person always can. A ``name`` that is not a skill name, or
+a ``description`` that is empty or not a string, is written the way a
+missing one is, since dsh ignores the file otherwise. Every value is
+written so that YAML 1.2 reads it back with its type. A value tagged ``!``
+or ``!!str`` is a string, as it is to dsh, and an empty or null block
+counts as a mapping with no keys. Rendering rejects frontmatter that does
+not parse, nests too deeply to read, holds any other tag, or is not a
+mapping.
 
 Hermes Agent
 ~~~~~~~~~~~~
