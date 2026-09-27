@@ -128,25 +128,17 @@ reaches a deployment through ``POST /reef/train``. ``GET /reef/harness``
 serves the tree, and each evaluation episode renders it with the model
 binding.
 
-Terminus 2 calls the model through litellm. The model binding keeps the
-served name in ``model_name`` and sets ``llm_kwargs.custom_llm_provider`` to
-``litellm_proxy``, litellm's route to an OpenAI-compatible proxy. litellm
-then sends that name unchanged to ``api_base``, whatever vendor prefix it
-carries, and puts the tree's call arguments into the request body:
-``reasoning_effort``, the ``thinking`` budget Harbor sends for a Claude
-model under ``max_thinking_tokens``, and ``llm_call_kwargs`` fields such as
-``provider`` or ``top_k``.
+Run a published tree
+^^^^^^^^^^^^^^^^^^^^
 
-Without that provider, a vendor prefix litellm does not know, such as
-``qwen/qwen3-coder``, fails with ``LLM Provider NOT provided``, and one it
-knows, such as ``deepseek/``, goes to that vendor's own client without its
-vendor prefix. ``custom_openai`` also keeps the name, but it drops
-``reasoning_effort`` and ``thinking``, and a call with an
-``llm_call_kwargs`` field the OpenAI SDK does not take fails. Harbor looks
-up the context limit that Terminus 2 summarizes against under
-``model_name``, so a served name that litellm lists, such as
-``openai/gpt-4o-mini``, keeps its limit. A name litellm does not list gets
-Harbor's fallback of 1,000,000 tokens.
+Before running a declarative Terminus tree locally, prepare:
+
+- A running Reef service and the scenario whose published tree you want to use.
+- A Harbor task directory and a working Docker installation.
+- A trial directory shared with Docker. With colima on macOS, use a path under
+  your home directory; ``$TMPDIR`` is not shared by default.
+- A local tree root containing the ``files`` returned by ``GET /reef/harness``
+  for the scenario, saved under their relative paths.
 
 Evaluation episodes call the upstream directly. A tree that you run through
 Reef yourself also needs the scenario header in ``llm_kwargs.extra_headers``,
@@ -166,13 +158,26 @@ or Reef answers HTTP 400 ``missing or empty x-reef-scenario``. Write this in
      }
    }
 
-Then run ``REEF_TERMINUS_DIR=<root> REEF_TERMINUS_SESSION_DIR=<root>/terminus/sessions
-REEF_TERMINUS_TRIALS_DIR=<trials> reef-terminus --task <task directory>``.
-Harbor bind-mounts the trial directories under ``<trials>`` into the task
-container, so ``<trials>`` must be on a path your Docker shares with its VM.
-colima does not share ``$TMPDIR``, and container writes there never reach
-the host. When a trial has neither a reward nor the verifier's output, its
-error names this mount problem.
+Set the paths to your saved tree and task, then run one task:
+
+.. code:: bash
+
+   TREE_ROOT="$HOME/reef-harness/terminus"
+   TASK_DIR="/path/to/harbor/task"
+   TRIALS_DIR="$HOME/reef-trials"
+   REEF_TERMINUS_DIR="$TREE_ROOT" \
+     REEF_TERMINUS_SESSION_DIR="$TREE_ROOT/terminus/sessions" \
+     REEF_TERMINUS_TRIALS_DIR="$TRIALS_DIR" \
+     reef-terminus --task "$TASK_DIR"
+
+The JSON trial record under ``$TREE_ROOT/terminus/sessions`` contains the
+verifier rewards and ATIF trajectory. The bundled Reefine health task succeeds
+with reward 1. If a local Docker trial has neither reward nor verifier output,
+the runner reports a possible mount problem: check that Docker shares
+``$TRIALS_DIR`` with the host.
+
+Evaluation directories and Docker context
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Reef prepares an evaluation episode for Docker itself. On macOS its root is
 made under ``~/.reef/episodes`` (``is_root_bind_mounted``), which colima and
@@ -185,6 +190,9 @@ keeps the service's ``DOCKER_HOST``, ``DOCKER_CONTEXT``, and
 ``~/.docker``), because ``HOME`` points into the episode and the docker CLI
 reads its current context (colima, Docker Desktop) and the compose plugin
 from that directory.
+
+Python extensions
+^^^^^^^^^^^^^^^^^
 
 Extensions require ``evolution.executor: sandbox`` to isolate the Python
 runner. Harbor runs the terminal task remotely. Enable network access with
@@ -202,6 +210,29 @@ tree and configured executor before Reef writes episode files. It raises
 ``EpisodeLaunchError`` for unsupported combinations and replaces the default
 ``self_isolating`` nesting restriction. Execution, timeout, cleanup, and
 trajectory handling still use the shared episode code.
+
+Model binding and provider compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Terminus 2 calls the model through litellm. The model binding keeps the
+served name in ``model_name`` and sets ``llm_kwargs.custom_llm_provider`` to
+``litellm_proxy``, litellm's route to an OpenAI-compatible proxy. litellm
+then sends that name unchanged to ``api_base``, whatever vendor prefix it
+carries, and puts the tree's call arguments into the request body:
+``reasoning_effort``, the ``thinking`` budget Harbor sends for a Claude
+model under ``max_thinking_tokens``, and ``llm_call_kwargs`` fields such as
+``provider`` or ``top_k``.
+
+Without that provider, a vendor prefix litellm does not know, such as
+``qwen/qwen3-coder``, fails with ``LLM Provider NOT provided``, and one it
+knows, such as ``deepseek/``, goes to that vendor's own client without its
+vendor prefix. ``custom_openai`` also keeps the name, but it drops
+``reasoning_effort`` and ``thinking``, and a call with an
+``llm_call_kwargs`` field the OpenAI SDK does not take fails. Harbor looks
+up the context limit that Terminus 2 summarizes against under
+``model_name``, so a served name that litellm lists, such as
+``openai/gpt-4o-mini``, keeps its limit. A name litellm does not list gets
+Harbor's fallback of 1,000,000 tokens.
 
 DeepSeek Harness
 ~~~~~~~~~~~~~~~~
