@@ -28,7 +28,7 @@ from __future__ import annotations
 import importlib
 import json
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -187,33 +187,12 @@ class CodexSessionReader(TrajectoryReader):
     Codex writes rollouts below ``CODEX_HOME/sessions/YYYY/MM/DD``. Sorting
     by relative path preserves the date hierarchy and rollout id order; the
     common JSONL reader tolerates one torn final line per rollout.
-
-    A ``response_item`` event whose payload is a message also carries that
-    message under ``message``, beside the raw ``type`` and ``payload``, with
-    its ``input_text`` and ``output_text`` parts typed ``text``: the scorers
-    read a message at the top with text parts, as pi writes it.
     """
 
     format = "codex-session-jsonl"
 
     def __call__(self, path: Path) -> tuple[dict[str, Any], ...]:
-        events = []
-        for event in _read_jsonl_tree(path, "codex session"):
-            payload = event.get("payload")
-            if event.get("type") == "response_item" and isinstance(payload, dict) and payload.get("type") == "message":
-                content = payload.get("content")
-                if isinstance(content, list):
-                    content = [
-                        (
-                            {**part, "type": "text"}
-                            if isinstance(part, dict) and part.get("type") in ("input_text", "output_text")
-                            else part
-                        )
-                        for part in content
-                    ]
-                event = {**event, "message": {**payload, "content": content}}
-            events.append(event)
-        return tuple(events)
+        return _read_jsonl_tree(path, "codex session")
 
 
 @register_trajectory_reader
@@ -351,3 +330,26 @@ class NativeSessionReader(TrajectoryReader):
 
     def __call__(self, path: Path) -> tuple[dict[str, Any], ...]:
         return PiSessionReader()(path)
+
+
+def final_assistant_text(trajectory: Sequence[Mapping[str, Any]]) -> str | None:
+    """Read the final assistant text from flat, pi, or Codex session events.
+
+    Codex wraps Responses messages in ``response_item.payload`` with
+    ``output_text`` parts; pi wraps messages in ``message`` with ``text``
+    parts. A non-mapping ``message`` (a terminus ATIF step's text) is not a
+    wrapped message.
+    """
+    for event in reversed(trajectory):
+        nested = event.get("payload") if event.get("type") == "response_item" else event.get("message")
+        message = nested if isinstance(nested, Mapping) else event
+        if message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = [part["text"] for part in content if part.get("type") in ("text", "output_text")]
+            if texts:
+                return "\n".join(texts)
+    return None

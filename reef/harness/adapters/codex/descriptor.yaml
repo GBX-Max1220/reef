@@ -11,7 +11,7 @@ binary: codex
 install:
   kind: npm
   package: "@openai/codex"
-  version: "0.152.1"
+  version: "0.153.4"
   binary_path: "node_modules/.bin/codex"
 # An episode never waits for an approval and never searches the web: these
 # overrides win over config.toml. The tree may not set approval_policy, so a
@@ -64,6 +64,8 @@ files:
           trace_exporter: none
         sandbox_workspace_write:
           network_access: false
+    models:
+      path: "codex/models.json"
   rules: "codex/AGENTS.md"
   # Codex 0.152.1 loads no custom prompts (its TUI refuses /name), so an
   # agent_command renders as a skill the person types as $name. A skill and
@@ -83,7 +85,7 @@ writable_paths:
   - "codex"
 cleanup_whitelist:
   - "codex/sessions/**"
-  # Codex 0.152.1 initializes its isolated user home on first boot. These are
+  # Codex 0.153.4 initializes its isolated user home on first boot. These are
   # versioned local databases, copied system skills, coordination files, and
   # temporary discovery state observed by the real-binary smoke test.
   - "codex/.sandbox_migration"
@@ -111,3 +113,6 @@ model_binding:
             wire_api: responses
             supports_websockets: false
             experimental_bearer_token: "{api_key}"
+    - target: models
+      data:
+        models: "{model_metadata}"
