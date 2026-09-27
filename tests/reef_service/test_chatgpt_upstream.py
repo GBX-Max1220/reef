@@ -100,6 +100,30 @@ def test_a_streamed_reply_passes_through_as_the_backend_sent_it(tmp_path: Path) 
 
 
 @pytest.mark.unit
+def test_a_streamed_reply_is_named_an_event_stream_though_the_backend_names_no_type(tmp_path: Path) -> None:
+    """The backend sends its events with no text/event-stream content type; Reef relays a stream as events, and
+    Codex reads it, only by that type."""
+
+    async def untyped(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse()
+        await response.prepare(request)
+        await response.write(REPLY)
+        return response
+
+    backend = web.Application()
+    backend.router.add_post("/codex/responses", untyped)
+
+    async def call(url: str) -> dict[str, str]:
+        handler = ChatGPTInferenceHandler(url, sign_in=signed_in(tmp_path), timeout_s=5)
+        stream = await handler.inference_stream(Artifact.local(tmp_path), "/v1/responses", {"stream": True})
+        await stream.close()
+        return stream.headers
+
+    headers = run_against(backend, call)
+    assert [value for name, value in headers.items() if name.lower() == "content-type"] == ["text/event-stream"]
+
+
+@pytest.mark.unit
 def test_the_backend_body_keeps_instructions_and_asks_for_encrypted_reasoning() -> None:
     body = backend_request_body(
         {

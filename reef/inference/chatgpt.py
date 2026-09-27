@@ -22,7 +22,7 @@ from typing import Any
 
 from reef.artifact.artifact import Artifact
 from reef.inference.http import HttpInferenceHandler, InferenceProxyRuntime, RequestHeadersFactory
-from reef.runtime.interfaces import InferenceHandler, UpstreamStatusError
+from reef.runtime.interfaces import InferenceHandler, InferenceStream, UpstreamStatusError
 
 #: The ``inference.upstream_api`` value that selects this upstream.
 CHATGPT_UPSTREAM_API = "chatgpt"
@@ -134,6 +134,18 @@ class ChatGPTInferenceHandler(HttpInferenceHandler):
         if status == 401:
             return UpstreamStatusError(f"{error}; {SIGN_IN_HINT}", status=status)
         return error
+
+    async def inference_stream(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> InferenceStream:
+        """The backend's events as it sends them, named an event stream: the backend names no content type, and
+        Reef relays a stream as events, and Codex reads it, only by that type."""
+        stream = await super().inference_stream(artifact, path, payload)
+        headers = {name: value for name, value in stream.headers.items() if name.lower() != "content-type"}
+        return InferenceStream(
+            status=stream.status,
+            headers={**headers, "Content-Type": "text/event-stream"},
+            chunks=stream.chunks,
+            close=stream.close,
+        )
 
     async def inference(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """A reply the caller asked for whole: the backend streams every reply, so it is folded here."""
