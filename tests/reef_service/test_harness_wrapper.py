@@ -2839,6 +2839,7 @@ INSTALL_SCRIPT = textwrap.dedent(
     set -eu
     printf '%s\\n' "$1" > "$1/dest-seen"
     printf '%s\\n' "${REEF_TOKEN:-}" > "$1/token-seen"
+    printf '%s\\n' "${REEF_PYTHON:-}" > "$1/python-seen"
     cp "$1/.reef-harness-release" "$1/release-before"
     printf '{"release_id": "v2", "files": []}\\n' > "$1/.reef-harness-release"
     echo "reef: done"
@@ -2908,6 +2909,7 @@ def test_update_runs_the_fetched_install_script_for_the_install_root_and_refuses
     root = Path(compose).resolve().parent
     assert (tmp_path / "dest-seen").read_text().strip() == str(root)
     assert (tmp_path / "token-seen").read_text().strip() == "tok"
+    assert (tmp_path / "python-seen").read_text().strip() == sys.executable
     assert [item["name"] for item in json.loads((tmp_path / "release-before").read_text())["setup"]] == ["SMTP"]
     assert json.loads(release_file.read_text())["release_id"] == "v2"
     assert not list(Path(tempfile.gettempdir()).glob("reef-harness-install-*.sh"))
@@ -3078,15 +3080,16 @@ def test_session_does_not_redirect_an_explicit_update_of_another_installation(tm
 
 
 def _make_env_dump_binary(tmp_path: Path) -> Path:
-    """A fake agent that writes its environment to ``env.json`` beside itself and makes no call."""
+    """A fake agent that writes its environment to ``env.json`` and its arguments to ``argv.json`` beside itself."""
     binary = tmp_path / "fake-env-dump"
     binary.write_text(
         textwrap.dedent(
             """\
             #!/usr/bin/env python3
-            import json, os
+            import json, os, sys
             from pathlib import Path
             Path(__file__).with_name("env.json").write_text(json.dumps(dict(os.environ)))
+            Path(__file__).with_name("argv.json").write_text(json.dumps(sys.argv[1:]))
             """
         )
     )
@@ -3133,6 +3136,101 @@ def test_run_agent_sets_the_env_files_variables_under_the_shells_and_exports_the
         run_agent(str(binary), compose, "ask-scenario", "pi", "PI_CODING_AGENT_DIR", ["-p", "hi"])
     assert json.loads((tmp_path / "env.json").read_text())["REEF_HARNESS_WRAPPER"] == "/elsewhere/reef-pi"
     reef.close()
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("switch", ["DISABLE_AUTOUPDATER", "DISABLE_UPDATES"])
+def test_claude_session_runs_with_the_updater_off_unless_the_shell_sets_it(tmp_path, switch: str) -> None:
+    """Claude Code's updater installs the latest release over the person's own claude: ``DISABLE_AUTOUPDATER`` stops
+    the background one, ``DISABLE_UPDATES`` its ``update``, ``upgrade`` and ``install`` commands wherever they sit on
+    the command line. A reef-claude session gets both set to ``1``; a value the shell sets reaches the agent
+    unchanged."""
+    compose = tmp_path / "claude-tree" / "claude"
+    compose.mkdir(parents=True)
+    (compose / "settings.json").write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}) + "\n")
+    binary = _make_env_dump_binary(tmp_path)
+    env = {key: value for key, value in os.environ.items() if key != switch}
+    env["REEF_HARNESS_CAPTURES_DIR"] = str(tmp_path)
+    seen = []
+    for shell in ({}, {switch: "0"}):
+        with patch.dict(os.environ, {**env, **shell}, clear=True), contextlib.suppress(SystemExit):
+            run_agent(str(binary), str(compose), "test-scenario", "claude", "CLAUDE_CONFIG_DIR", ["-p", "hi"])
+        seen.append(json.loads((tmp_path / "env.json").read_text()).get(switch))
+    assert seen == ["1", "0"]
+
+
+@pytest.mark.unit
+def test_claude_session_gets_the_link_handler_setting_ahead_of_the_persons_arguments(tmp_path) -> None:
+    """The claude binary gets ``--settings`` with ``disableDeepLinkRegistration`` ahead of the person's arguments,
+    whatever the tree's settings.json holds (here a value Claude Code rejects). A ``--settings`` the person gives comes
+    after it, and a version flag that is not the first argument keeps it."""
+    compose = tmp_path / "claude-tree" / "claude"
+    compose.mkdir(parents=True)
+    rejected = {"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}, "cleanupPeriodDays": 0}
+    (compose / "settings.json").write_text(json.dumps(rejected) + "\n")
+    binary = _make_env_dump_binary(tmp_path)
+    env = {**os.environ, "REEF_HARNESS_CAPTURES_DIR": str(tmp_path)}
+    ours = ["--settings", '{"disableDeepLinkRegistration":"disable"}']
+    for args in (["-p", "hi"], ["--settings", "mine.json", "-p", "hi"], ["mcp", "list"], ["-p", "hi", "-v"]):
+        with patch.dict(os.environ, env, clear=True), contextlib.suppress(SystemExit):
+            run_agent(str(binary), str(compose), "test-scenario", "claude", "CLAUDE_CONFIG_DIR", args)
+        assert json.loads((tmp_path / "argv.json").read_text()) == [*ours, *args]
+
+
+@pytest.mark.unit
+def test_claude_version_flags_reach_the_binary_with_nothing_ahead(tmp_path) -> None:
+    """Claude Code prints its version early only when nothing is ahead of the flag (``-V`` is an unknown option
+    after ``--settings``), so a command line that starts with a version flag gets no ``--settings``."""
+    compose = tmp_path / "claude-tree" / "claude"
+    compose.mkdir(parents=True)
+    (compose / "settings.json").write_text(json.dumps({"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:1"}}) + "\n")
+    binary = _make_env_dump_binary(tmp_path)
+    env = {**os.environ, "REEF_HARNESS_CAPTURES_DIR": str(tmp_path)}
+    for args in (["--version"], ["-v"], ["-V"], ["-v", "--verbose"]):
+        with patch.dict(os.environ, env, clear=True), contextlib.suppress(SystemExit):
+            run_agent(str(binary), str(compose), "test-scenario", "claude", "CLAUDE_CONFIG_DIR", args)
+        assert json.loads((tmp_path / "argv.json").read_text()) == args
+
+
+@pytest.mark.unit
+def test_main_runs_update_as_reefs_install_and_hands_claudes_own_update_commands_to_claude(tmp_path) -> None:
+    """``update`` is the wrapper's own install of the served release. Claude Code's own ``upgrade`` and ``install``
+    reach the binary as typed, where the session's ``DISABLE_UPDATES`` stops them."""
+    installed: list[str] = []
+    ran: list[list[str]] = []
+    claude = {**_main_env(tmp_path), "REEF_HARNESS_ADAPTER": "claude", "REEF_HARNESS_ENV_VAR": "CLAUDE_CONFIG_DIR"}
+    with (
+        patch.dict(os.environ, claude),
+        patch(
+            "reef.harness.client.wrapper.update",
+            lambda scenario, adapter, *args, **kwargs: installed.append(adapter) or 0,
+        ),
+        patch("reef.harness.client.wrapper.run_agent", lambda *args: ran.append(args[-1])),
+    ):
+        with patch("sys.argv", ["reef-claude", "update"]), pytest.raises(SystemExit):
+            main()
+        for args in (["upgrade"], ["--verbose", "upgrade"], ["install"], ["--update"]):
+            with patch("sys.argv", ["reef-claude", *args]):
+                main()
+    assert installed == ["claude"]
+    assert ran == [["upgrade"], ["--verbose", "upgrade"], ["install"], ["--update"]]
+
+
+@pytest.mark.unit
+def test_claude_help_names_the_settings_ahead_of_the_arguments(tmp_path, capsys) -> None:
+    env = {**_main_env(tmp_path), "REEF_HARNESS_ADAPTER": "claude", "REEF_HARNESS_ENV_VAR": "CLAUDE_CONFIG_DIR"}
+    with (
+        patch.dict(os.environ, env),
+        patch("reef.harness.client.wrapper.run_agent", lambda *args: None),
+        patch("sys.argv", ["reef-claude", "help"]),
+    ):
+        main()
+    out = capsys.readouterr().out.splitlines()
+    assert out[-2:] == [
+        "  reef-claude update [--release ID]                                       install the served release here",
+        'Anything else runs claude with --settings \'{"disableDeepLinkRegistration":"disable"}\' ahead of the same '
+        "arguments, unless the first is one of --version, -v, -V; --help and -h print its help after this.",
+    ]
 
 
 @pytest.mark.unit
