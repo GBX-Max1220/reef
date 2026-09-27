@@ -28,7 +28,31 @@ beta/spade/
 
 As a reported feedback processor it takes the task player's reports: every plain episode names its task under `metadata.task`, the episodes of one task form a group, a group is complete at `rollouts-per-task` episodes, and a batch holds `tasks-per-step` complete groups. `SpadeObjective` centers and scales each episode's reward within its task group (a group with one reward everywhere gives 0), and Tinker's built in `importance_sampling` loss puts that advantage on every response token, so the recipe runs on the `tinker` backend today and fails at selection on Slime, which has no loss family of that name. The Designer's own reports (`metadata.role: designer`) and the hint arm's episodes (`arm: hint`) share the scenario; the processor releases them unassembled and trains on the plain arm alone.
 
-As a task generation processor (`reef.train.processors.TaskGenerationProcessor`) it runs the Designer. One generation is one job on a private worker, off the trainer's thread: `count` proposals over the `skills`, each a call to `generate` (the Designer asked through the generator service, with the last generation's results in the prompt as SPADE's experience section), written under the generator's tasks root (a duplicate refused; a name that an earlier attempt of the same generation took before a reload cancelled it is replaced), checked by `validate` (Harbor's oracle and nop agents: the reference solution scores 1, doing nothing below 1), played `rollouts-per-task` times as it is (the training data) and `hint-plays` times with `solution/hint.txt` appended (measured only), and reported against the Designer's receipt with its regret as the score, as measured and negative when the hint hurt, or `REFUSAL_SCORE` (-1.0) for a refused one, below any measured task; the report's metadata names the generation and its size (`proposals`), and its feedback carries the task's measure and, under `round.previous`, the last generation's summary (its mean regret, tasks measured and refused). Regret is the mean hint reward minus the mean plain reward; the plain mean puts the task in its band (mastered above 0.9, out of reach below 0.1, else frontier), and the frontier, highest regret first, is what the next prompt shows. The tasks are split by the Designer's record ids into `manifest-<generation>.json` under the tasks root, and `state-dir/generation-<generation>.json` keeps every proposal, refusal and measure; a restart reads it to carry on with the next generation and the last experience.
+As a task generation processor (`reef.train.processors.TaskGenerationProcessor`),
+it runs one generation on a private worker while the trainer handles batches.
+A generation contains `count` proposals over the configured `skills`:
+
+1. Ask the Designer through the generator's `generate` operation. Each prompt
+   includes the previous generation's experience.
+2. Write each reply as a Harbor task and run `validate`. The oracle must score 1
+   and the nop agent must score below 1. Duplicate task names are refused, except
+   for names from an interrupted attempt of the same generation.
+3. Play each accepted task `rollouts-per-task` times without a hint for training,
+   and `hint-plays` times with `solution/hint.txt` appended for measurement.
+4. Report the result against the Designer's receipt. A measured task's score is
+   its raw regret: mean hint reward minus mean plain reward. A refused proposal
+   gets `REFUSAL_SCORE` (-1.0). Regret can be negative and can equal or fall below
+   the refusal score; the refusal score is not a strict lower bound.
+
+The report metadata includes the generation and its size (`proposals`). Feedback
+contains the task's measurement and `round.previous`, the preceding generation's
+mean regret and counts of measured and refused tasks.
+
+The plain mean classifies a task as mastered (above 0.9), out of reach (below
+0.1), or frontier. The next prompt prioritizes frontier tasks by highest regret.
+`manifest-<generation>.json` under the tasks root groups tasks by Designer record
+ID. `state-dir/generation-<generation>.json` stores proposals, refusals, and
+measurements so a restart can resume with the next generation and last experience.
 
 The first generation starts when the processor first looks for a batch; the next once `batches-per-generation` batches were acknowledged since the previous one started (its episodes train while it runs), so the Designer writes for the policy that trains now; a generation that measured no task is followed at once; `generations` caps them. `GET /reef/status` shows the generation in flight, the count completed and the last error.
 
@@ -39,6 +63,12 @@ With `report-plays-after-generation` every play is held until the generation lan
 ```bash
 export REEF_TOKEN=reef-local REEF_SPADE_STATE_DIR="$PWD/work/spade"   # and TINKER_API_KEY
 reef serve -c recipes/beta/spade/examples/tinker/serve.yaml
+```
+
+In another terminal, create the scenario to start generation:
+
+```bash
+export REEF_TOKEN=reef-local
 curl -s -X POST -H "Authorization: Bearer $REEF_TOKEN" -H "Content-Type: application/json" \
   -d '{"name": "spade"}' http://127.0.0.1:8900/reef/scenarios
 ```
@@ -56,16 +86,31 @@ python -m reef.harness.client.tasks --reef-url http://127.0.0.1:8900 --scenario 
 
 Thinking stays off because a thinking model's episode never assembles into one sample: the agent's history carries earlier turns without their thinking, so the second turn's prompt no longer extends the first turn's tokens. With thinking off, Qwen3's generation prompt still ends with an empty think block that the history drops; `scaffold-tolerance` lets the assembly realign those masked tokens. A tasks root under a path Docker shares with the host (on macOS, under the home directory) is required, or the verifier's reward file never reaches the host.
 
-Known limits: a generation runs for hours while the weights reload every step, so one task group can hold episodes of two weight versions; `max-staleness` bounds that.
+With immediate play reporting, a generation can run for hours while weights reload
+after each step, so one task group can include multiple weight versions.
+`max-staleness` bounds that lag; `report-plays-after-generation` selects the held
+reporting mode described above.
+
+## Choose how the Designer learns
+
+The Reasoning Agent runs on port 8900 with
+[`examples/tinker/serve.yaml`](examples/tinker/serve.yaml). To train the Designer,
+run a second service on port 8901 using **one** of these alternatives:
+
+| Designer update | Deployment | What changes |
+| --- | --- | --- |
+| Weights | [designer-tinker](examples/designer-tinker/serve.yaml) | A separate Designer LoRA, trained from proposal regret. |
+| Prompt | [designer-harness](examples/designer-harness/serve.yaml) | The `designer-system` and `designer-rules` skill entries. |
+
+Both paths report Designer proposals to the second service. They use separate
+policies for the Designer and Reasoning Agent; they do not implement the paper's
+shared-weight self play.
 
 ## Train the Designer on its regret
 
-```bash
-export REEF_TOKEN=reef-local REEF_SPADE_DESIGNER_STATE_DIR="$PWD/work/spade-designer"   # and TINKER_API_KEY
-reef serve -c recipes/beta/spade/examples/designer-tinker/serve.yaml
-```
-
-Two Reef services run. The agent stack (`examples/tinker/serve.yaml`, port 8900) runs the generator and trains the Reasoning Agent; the Designer's service (`examples/designer-tinker/serve.yaml`, port 8901) serves the Designer and trains it. The agent stack's `generator` section points the Designer's calls at the second service:
+Before starting the Reasoning Agent stack, add these fields to its existing
+`generator` section in `examples/tinker/serve.yaml`. Keep `tasks-root` and the
+other generator settings already in that file:
 
 ```yaml
 generator:
@@ -75,21 +120,110 @@ generator:
   designer-model: Qwen/Qwen3-8B
 ```
 
-`designer-scenario` is the scenario the Designer's records and reports go to on that service, whatever scenario the agent stack trains under; the Designer's deployment sets `allow-implicit-scenario-creation: true`, so the generator's first call creates it. `designer-model` names the model that service serves. Every proposal is then an inference record on the Designer's service, and `SpadeProcessor` reports each one there with its regret as the score, the generation and its size (`proposals`) in the metadata.
-
-`SpadeDesignerRecipe` is the Designer's weight training recipe: each proposal is one chat call, so one sample, with the regret its task earned as the score. `SpadeDesignerProcessor` batches one generation as one unit (`metadata.proposals` reports arrived, refusals included at `REFUSAL_SCORE`), and a sample's group id names the generation and, when the report names one, the skill, so `SpadeObjective` centers the scores within a generation and a skill; a generation whose proposals all scored alike is skipped rather than trained on zero advantages. `generations-per-step` sets how many complete generations one step trains on. `GET /reef/status` on the Designer's service shows the groups still buffered and how many reports each holds. This trains a separate Designer LoRA: two Tinker deployments never share a parameter, so the Designer and the Reasoning Agent are two policies, not the paper's shared weight self play; one scenario training both roles is a later issue.
-## Evolve the Designer's prompt
-
-The Designer's prompt is two texts, the system turn and the rules block (`reef.record2dataset.designer.DesignerPrompt`), and `SpadeDesignerHarnessRecipe` evolves them as a harness tree of two skill entries, `designer-system` and `designer-rules`. Run it as a second deployment beside the training one:
+Start the Designer in a separate terminal with `TINKER_API_KEY` set:
 
 ```bash
-export REEF_TOKEN=reef-local REEF_SPADE_DESIGNER_STATE_DIR="$PWD/work/designer"
-export REEF_UPSTREAM_URL=https://openrouter.ai/api REEF_UPSTREAM_MODEL=openai/gpt-5 REEF_UPSTREAM_API_KEY=...
+export REEF_TOKEN=reef-local
+export REEF_SPADE_DESIGNER_STATE_DIR="$PWD/work/spade-designer"
+reef serve -c recipes/beta/spade/examples/designer-tinker/serve.yaml
+```
+
+Then start the Reasoning Agent stack and create its scenario as in **Run it**.
+Use the same `REEF_TOKEN` in both terminals. The Designer deployment permits
+implicit scenario creation: the generator's first call creates `designer`.
+`designer-model` must name the model served by that deployment.
+
+Each proposal creates one inference record on the Designer service. Its report
+carries raw regret, generation, and `proposals`. `SpadeDesignerProcessor` waits
+for all reports in a generation, including refusals, before completing the group.
+`SpadeObjective` compares scores within that generation and, when supplied, the
+skill. Equal-score groups produce no learning signal; a generation whose
+proposals all scored alike is skipped.
+
+`generations-per-step` sets how many complete generations one training step
+consumes. Query the Designer service to inspect buffered groups and report counts:
+
+```bash
+curl -fsS -H "Authorization: Bearer $REEF_TOKEN" http://127.0.0.1:8901/reef/status
+```
+
+A complete generation should lead to a training step or an explicit skip. A skip
+because every proposal was refused verifies batching, not successful learning.
+
+## Evolve the Designer's prompt
+
+This alternative uses `SpadeDesignerHarnessRecipe` to evolve two texts: the system
+turn and the rules block (`reef.record2dataset.designer.DesignerPrompt`). Its tree
+contains the `designer-system` and `designer-rules` skill entries.
+
+### Connect and start the services
+
+In the Reasoning Agent deployment's existing `generator` section, add:
+
+```yaml
+generator:
+  designer-url: http://127.0.0.1:8901
+  designer-token: ${REEF_TOKEN}
+  designer-scenario: designer
+  designer-prompt: harness
+```
+
+Set the Designer service's `recipe.config.batch-size` to the Reasoning Agent
+recipe's `count`. This lets one prompt-update step consume one generation of
+proposal reports. The shipped example uses 8 for both.
+
+Start the Designer with an upstream endpoint and its credentials:
+
+```bash
+export REEF_TOKEN=reef-local
+export REEF_SPADE_DESIGNER_STATE_DIR="$PWD/work/designer"
+export REEF_UPSTREAM_URL=https://openrouter.ai/api
+export REEF_UPSTREAM_MODEL=openai/gpt-5
+export REEF_UPSTREAM_API_KEY=...
 reef serve -c recipes/beta/spade/examples/designer-harness/serve.yaml
 ```
 
-The training deployment's `generator` section points the Designer at it: `designer-url: http://127.0.0.1:8901`, `designer-token`, `designer-scenario` naming the scenario the Designer's calls create there, and `designer-prompt: harness`. Every Designer call is then an inference record on that service and every proposal's report lands there with its regret as the score. `batch-size` on the harness service equals the training recipe's `count`, so one evolve step reads one whole generation: `propose_prompt` shows the Designer model each proposal's regret, feedback and instruction excerpt (fenced as data) beside the current texts and asks for a rewrite of one or both as a JSON array of skill entries; only the texts that changed become `update` mutations. `ReportedRegretSelection` publishes every rewrite without a gate episode, and the generator pulls the release (`GET /reef/harness`, `native/tree.json`) once per generation before it asks the Designer, so the next generation is written with the new texts; a scenario that serves no tree yet leaves the fixed prompt in place. A generation's first proposal waits, polling every `designer-poll-s` seconds for up to `designer-wait-s`, until the Designer's service serves a release (or, for a weight training Designer, a runtime load id and step) other than the one it served when the previous generation's reports went out, so the rewrite those reports produced is the one the next generation pulls and a release that appeared before them, such as the scenario's creation release, does not count; on timeout it proceeds with a warning.
+Start the Reasoning Agent stack in another terminal and create its scenario as
+in **Run it**. Use the same `REEF_TOKEN` in both terminals. Every Designer call
+and its regret report now belongs to `designer` on port 8901.
 
-No gate holds a worse rewrite back: the regret the next generation earns is the rewrite's measure, and the trend of the mean regret across generations (`state-dir/generation-<generation>.json` on the training side, the step records under `evolution.step-record-dir` on this one) is what to watch. A rewrite that drops the `{turn_limit}` placeholder or a rule of the task contract shows up as refusals in the next generation, which the following rewrite sees.
+### Follow one generation
 
-Known limits: a generation runs for hours while the weights reload every step, so one task group can hold episodes of two weight versions; `max-staleness` bounds that. The Designer's own weight training, its regret as the reward of its proposals, follows.
+1. The generator pulls `native/tree.json` from `GET /reef/harness` once per
+   generation and uses its two prompt entries. If the scenario has no tree yet,
+   generation uses the fixed prompt.
+2. After the generation reports its proposals, `propose_prompt` shows the model
+   their regret, feedback, and instruction excerpts alongside the current texts.
+   Excerpts are fenced as data. The reply is a JSON array of skill entries;
+   only changed texts become `update` mutations.
+3. `ReportedRegretSelection` publishes every rewrite without running evaluation
+   episodes. The next generation's regret measures the effect of that rewrite.
+
+Inspect the current prompt release with:
+
+```bash
+curl -fsS -H "Authorization: Bearer $REEF_TOKEN" \
+  -H "x-reef-scenario: designer" http://127.0.0.1:8901/reef/harness
+```
+
+Compare its release ID and prompt entries across generations. Use
+`state-dir/generation-<generation>.json` on the training side for mean regret and
+refusals, and the Designer's `evolution.step-record-dir` for rewrite results.
+A new release confirms publication; it does not establish an improvement.
+
+### Wait for an update and interpret failures
+
+Before the first proposal of the next generation, the generator waits for a
+Designer version different from the one observed when the previous generation's
+reports began. A harness Designer is identified by release; a weight Designer
+by runtime load ID and scenario step. A creation release that appeared before
+the reports does not satisfy the wait.
+
+`generator.designer-poll-s` controls polling and `generator.designer-wait-s`
+bounds the wait. On timeout, generation proceeds with a warning. A deployment
+with neither version signal is not waited on.
+
+There is no evaluation step that blocks a worse prompt rewrite. A rewrite that
+omits `{turn_limit}` or a task-contract rule may cause refusals in the next
+generation; that feedback is available to the following rewrite. Review the
+regret and refusal trend rather than treating every publication as an improvement.
