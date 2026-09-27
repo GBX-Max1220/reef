@@ -116,27 +116,13 @@ names the kind, and ``harness_try`` refuses to mount one on a serving process:
 the model proposes a loop, a person serves it.
 
 Codex and Terminus support ``config``, ``rules``, ``agent_command``, and
-``skill``. Codex rejects ``code_extension`` because lifecycle hooks run outside
-its command sandbox. Codex 0.152.1 loads no custom prompts, so a Codex
-``agent_command`` is a skill that you type as ``$name``. A Codex tree may turn
-on ``web_search`` for your ``reef-codex`` session; episodes always run with
-web search off. The shell in a ``reef-codex`` session has no network, so a
-command that reaches Reef, such as ``reef-codex evolve``, runs only after you
-approve it when Codex asks. Episodes never ask, and ``reef-codex exec``
-cannot ask, so its shell cannot reach Reef. Answer "Yes, proceed", which
-approves one call. "Yes, and don't ask again" runs every command that starts
-with the text Codex shows in that answer with no question until the session
-ends, and after it too when the installed tree has a ``codex/rules``
-directory, since the rule then lands there. An approved call runs the ``reef-codex`` file as it is at that moment,
-and when the harness is installed inside the project directory the session
-can change that file before the call. Codex asks once whether you trust the
-folder a session starts in; ``reef-codex`` keeps that answer for the folder
-(or the repository above it) in ``~/.reef/trust``, readable by you alone and
-outside the install root, and the installed ``codex/config.toml`` never
-changes. Delete the file there to be asked again. Terminus accepts one Python module
-defining ``Agent(Terminus2)`` when Reef's sandbox isolates the runner and
-Harbor uses remote E2B tasks. See the adapter guide for the required
-deployment settings.
+``skill``. A Codex ``agent_command`` is a skill invoked as ``$name``.
+Codex rejects ``code_extension`` because lifecycle hooks run outside its
+command sandbox. See `Run a Codex session`_ for approvals and network access.
+
+Terminus accepts one Python module defining ``Agent(Terminus2)`` when Reef's
+sandbox isolates the runner and Harbor uses remote E2B tasks. See the adapter
+guide for the required deployment settings.
 
 With the ``pi`` adapter, ``GET /reef/harness`` serves:
 
@@ -876,6 +862,50 @@ deployment listens on port 8901.
      -H "Content-Type: application/json" \
      -d '{"release_id": "<the pending release id>"}' \
      http://127.0.0.1:8901/reef/scenarios/<scenario>/promote
+
+Run a Codex session
+-------------------
+
+Install a Codex harness with ``adapter=codex`` and run ``reef-codex`` from
+its project directory. Codex 0.152.1 exposes commands as skills: type
+``$reefine`` or another ``$name`` in the session, rather than ``/name``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Run mode
+     - Shell access to Reef
+     - Web search
+   * - Interactive ``reef-codex``
+     - The shell has no network by default. A wrapper command that calls Reef
+       needs an escalation request and your approval.
+     - The tree may enable it through ``web_search``.
+   * - ``reef-codex exec``
+     - Approval is ``never``, so the shell cannot call Reef.
+     - Controlled by the installed tree and command-line options.
+   * - Evaluation episode
+     - No approval prompts; the shell cannot call Reef.
+     - Always disabled by the episode arguments.
+
+For a single wrapper call, choose "Yes, proceed". "Yes, and don't ask again"
+saves an execution rule; later matching calls need no new approval. An approved
+call executes the wrapper file as it exists at that moment. Keep the install
+outside the project directory so the session cannot rewrite that file through
+its project access.
+
+Trust and saved approvals
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Codex asks whether you trust the project folder. ``reef-codex`` keeps that
+answer for the folder, or its repository, in ``~/.reef/trust``, readable by
+you alone and outside the install root. It does not change the installed
+``codex/config.toml``. Delete the corresponding trust file to be asked again.
+
+Execution rules normally last only until the temporary session copy is removed.
+If the installed tree contains ``codex/rules``, the session links that directory
+and rules persist there. The adapter guide's `Codex CLI
+<../developer-guide/harness-adapters.rst#codex-cli>`__ section describes how
+command text and ``prefix_rule`` determine which calls a saved rule allows.
 
 Serve the harness as a resident process
 ---------------------------------------
