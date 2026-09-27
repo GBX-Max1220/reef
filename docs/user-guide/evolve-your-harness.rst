@@ -580,10 +580,16 @@ the install works before any step has run:
 
    curl -fsS -H "Authorization: Bearer reef-local" \
      -H "x-reef-scenario: harness-evolve-demo" \
-     'http://127.0.0.1:8900/reef/harness/install?adapter=pi' | REEF_TOKEN=reef-local bash
+     'http://127.0.0.1:8900/reef/harness/install?adapter=pi' | \
+     REEF_TOKEN=reef-local bash -s -- ~/reef-harness/harness-evolve-demo
 
    reef-pi -p "fix the failing test in auth.py"
    reef-pi report --score 0 --feedback "missed the empty-token case"
+
+The argument to ``bash`` selects the install directory. Keep it outside the
+project the agent works in, as in the example above. ``REEF_TOKEN`` must be
+passed to ``bash`` as well as to ``curl``: the script uses it to configure the
+installed harness's model binding.
 
 The script installs the pinned agent, writes the tree, writes the agent's
 model binding pointed at the address the script came from, which behind a
