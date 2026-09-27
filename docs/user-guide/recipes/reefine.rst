@@ -415,10 +415,14 @@ Terminus
 --------
 
 ``--recipe.config.evolution.adapter terminus`` runs the profile on
-Terminal-Bench's Terminus 2. Terminus is a batch runner, not a session:
-``reef-terminus`` takes only ``--task`` and plays one Harbor task in a Docker
-container. So the ask, result, install and reload steps of `How it works`_
-do not apply:
+Terminal-Bench's Terminus 2. Prepare a working Docker installation on the
+service host and a model endpoint with its API key. On macOS, Docker must
+share ``~/.reef/episodes`` with the host. Other platforms use the temp
+directory; set ``TMPDIR`` for the service if Docker's VM does not share it.
+
+Terminus runs one Harbor task at a time through ``reef-terminus --task``.
+Submit evolution requests over HTTP and inspect their result pages. The
+interactive install and reload steps in `How it works`_ do not apply:
 
 * There is no install script. ``GET /reef/harness/install?adapter=terminus``
   answers HTTP 400.
@@ -438,9 +442,10 @@ do not apply:
      --recipe.config.evolution.requests false \
      --recipe.config.evolution.version_check false
 
-A request reaches the service through ``POST /reef/train``. Create a
-scenario, read its ``release_id`` from ``GET /reef/harness``, and send the
-request:
+In another terminal, create a scenario, read its ``release_id`` from
+``GET /reef/harness``, and send a request to ``POST /reef/train``. Replace
+``<release_id>`` and ``<what it should do>`` with those values. If the service
+requires authentication, set ``REEF_TOKEN`` to its token in this terminal:
 
 .. code:: bash
 
@@ -453,10 +458,16 @@ request:
      -H "Content-Type: application/json" \
      -d '{"text": "<what it should do>", "session": "terminal-1", "release_id": "<release_id>"}'
 
-The answer carries the request's ``agent_record_id``, and
-``GET /reef/harness/requests/<id>/page`` shows the step. The evaluation
-runs the health task directory above, so the service host needs Docker. The
-episode uses the Docker your shell uses: it keeps the service's
+The answer carries the request's ``agent_record_id``. Open
+``GET /reef/harness/requests/<id>/page`` for that scenario to inspect the step:
+accepting the request alone does not mean it passed evaluation. The bundled
+health task should score 1; inspect the selection result and published release
+on the page before using the new tree.
+
+Docker context and published files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The episode uses the Docker your shell uses: it keeps the service's
 ``DOCKER_HOST``, ``DOCKER_CONTEXT`` and ``DOCKER_CONFIG`` (default
 ``~/.docker``, where colima and Docker Desktop set the current context). On
 macOS its files live under ``~/.reef/episodes``, because colima does not
