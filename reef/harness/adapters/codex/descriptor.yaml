@@ -67,7 +67,7 @@ files:
     models:
       path: "codex/models.json"
   rules: "codex/AGENTS.md"
-  # Codex 0.152.1 loads no custom prompts (its TUI refuses /name), so an
+  # Codex 0.153.4 loads no custom prompts (its TUI refuses /name), so an
   # agent_command renders as a skill the person types as $name. A skill and
   # an agent_command with one name render to one path and are refused.
   agent_command: "codex/skills/{name}/SKILL.md"

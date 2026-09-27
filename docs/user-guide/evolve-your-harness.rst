@@ -117,7 +117,7 @@ the model proposes a loop, a person serves it.
 
 Codex and Terminus support ``config``, ``rules``, ``agent_command``, and
 ``skill``. Codex rejects ``code_extension`` because lifecycle hooks run outside
-its command sandbox. Codex 0.152.1 loads no custom prompts, so a Codex
+its command sandbox. Codex 0.153.4 loads no custom prompts, so a Codex
 ``agent_command`` is a skill that you type as ``$name``. A Codex tree may turn
 on ``web_search`` for your ``reef-codex`` session; episodes always run with
 web search off. The shell in a ``reef-codex`` session has no network, so a

@@ -134,7 +134,7 @@ def test_codex_episode_argv_pins_approvals_and_web_search_off_over_the_session_c
 
 
 def test_codex_renders_a_command_as_a_skill_and_refuses_one_that_shares_a_skills_name() -> None:
-    """Codex 0.152.1 loads no custom prompts, so a command is a skill typed as $name, in the one skill root."""
+    """Codex 0.153.4 loads no custom prompts, so a command is a skill typed as $name, in the one skill root."""
     descriptor = get_adapter("codex")
     command = ("agent_command", {"name": "reefine", "text": "File the text after $reefine as a request."})
     files = render_composition([command], descriptor)
