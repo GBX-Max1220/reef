@@ -7,6 +7,9 @@ at ``/v1/messages``. It forwards each
 request to the runtime unchanged. It adds a small set of ``/reef/*`` routes for
 feedback, scenarios, artifacts, and status.
 
+The service accepts request bodies up to 64 MiB so coding agents can send
+large contexts. Record import routes retain their 1 MiB limit.
+
 For a complete request, receipt, and feedback example, start with the
 `inference and feedback quickstart <../getting-started/quickstart.rst>`__.
 To put the release routes into practice, follow the `agent harness tutorial
@@ -58,7 +61,8 @@ Routes
 +----------------------------------------------------------------------------------+---------------------------------------------------+
 | ``POST /reef/train``                                                             | enqueue one training instruction                  |
 +----------------------------------------------------------------------------------+---------------------------------------------------+
-| ``GET /reef/scenarios``                                                          | every known scenario and current release          |
+| ``GET /reef/scenarios``                                                          | every known scenario, current release and harness |
+|                                                                                  | adapter                                           |
 +----------------------------------------------------------------------------------+---------------------------------------------------+
 | ``POST /reef/scenarios``                                                         | create a scenario explicitly                      |
 +----------------------------------------------------------------------------------+---------------------------------------------------+
@@ -326,7 +330,9 @@ to them; with none queued the step batches as ``auto`` does.
      -H "Content-Type: application/json" \
      -d '{"agent_record_id":"change-001","text":"Add a skill that runs tests before answering", "session":"session-1", "release_id":"release-1"}'
 
-The response is ``{agent_record_id, scenario, request_type: "train"}``.
+The response is ``{agent_record_id, scenario, request_type: "train"}``,
+plus ``page_path``, the request's page with the query a browser opens it by
+(see Request page).
 HTTP 200 acknowledges durable acceptance, not successful training. Requests
 are executed one at a time by the normal training worker; later requests
 do not change a step already in flight. A step that fails with an
@@ -425,8 +431,10 @@ unknown scenario returns HTTP 404 and you create it first:
 |                                             | content_id}``; 201 created, 200 already     |
 |                                             | existed                                     |
 +---------------------------------------------+---------------------------------------------+
-| ``GET /reef/scenarios``                     | every known scenario and its current        |
-|                                             | release once loaded                         |
+| ``GET /reef/scenarios``                     | every known scenario, its current release   |
+|                                             | once loaded and, for a harness recipe, the  |
+|                                             | ``adapter`` its tree is rendered for, also  |
+|                                             | while the scenario loads                    |
 +---------------------------------------------+---------------------------------------------+
 | ``GET /reef/scenarios/{scenario}/contract`` | ``{scenario, processor,                     |
 |                                             | required_request_types, training_mode,      |
@@ -680,7 +688,9 @@ Harness artifacts
 |                                | an ``x-reef-release-id`` response header                      |
 +--------------------------------+---------------------------------------------------------------+
 | ``GET /reef/harness/releases`` | ``{scenario, releases}``, oldest first, each training row     |
-|                                | carrying the evaluation metrics of the publishing step        |
+|                                | carrying the evaluation metrics of the publishing step and    |
+|                                | ``page_path``, its step's page with the query a browser opens |
+|                                | it by                                                         |
 +--------------------------------+---------------------------------------------------------------+
 | ``GET /reef/harness/install``  | a self-contained POSIX shell script that installs the vendor  |
 |                                | binary, writes the tree, and writes the adapter's model       |
@@ -999,7 +1009,7 @@ step holds this request, ``started_at``, ``episodes_total``,
 empty otherwise) from the backend's progress. The phase is what the pi
 extension's spinner names while the step runs, and opening the spinner lists
 the latest four activity lines. Unlike the two pages this is
-an ordinary route: it reads the headers alone, and a ``?token=`` is HTTP
+an ordinary route: it reads the headers alone, and a ``?key=`` is HTTP
 401. An unknown id, or one that is not a training instruction, is HTTP 404
 naming it.
 
@@ -1012,18 +1022,28 @@ phase ``evaluating``. Reviews and settled proposals store their outcome under
 for existing clients.
 
 Both pages are links a person opens in a browser, which sends no header, so
-they also take the scenario and the token as query parameters,
-``?scenario=<name>&token=<token>``, in place of ``x-reef-scenario`` and
+they also take the scenario and a credential as query parameters,
+``?scenario=<name>&key=<page key>``, in place of ``x-reef-scenario`` and
 ``Authorization: Bearer``; a header wins when present, and each page's links
-to the other carry the parameters it was opened with.
-The token then sits in the URL, in the browser's history and in whatever
-logs request lines, so a deployment that hands out such links is a local
-one. Every other route reads the headers alone; a ``?token=`` elsewhere is
-HTTP 401.
+to the other carry the parameters it was opened with. Clients never build
+these links: ``POST /reef/train`` answers ``page_path`` for the request's
+page and ``GET /reef/harness/releases`` one per row for its step's page,
+and a client prints its service URL followed by that path. The path's query
+holds the page key when the request presented a service token (an
+evaluation token gets none, and with authentication off the query names
+the scenario alone). The key opens these two pages of that one scenario and
+no other route, a request whose ``x-reef-scenario`` header names another
+scenario is HTTP 401, and the token cannot be read back from it (the
+service derives it as an HMAC SHA-256 of the scenario keyed by the token's
+digest). The links ``reef-<adapter>`` and pi's extension print carry it,
+since a session's model reads them and a session's traffic is captured.
+The token itself is never read from a query: ``?token=`` is HTTP 401 on
+every route, the pages included. Every other route reads the headers alone;
+a ``?key=`` elsewhere is HTTP 401.
 
 .. code:: text
 
-   $REEF_URL/reef/harness/requests/<record_id>/page?scenario=<scenario>&token=<token>
+   $REEF_URL/reef/harness/requests/<record_id>/page?scenario=<scenario>&key=<page key>
 
 Retained step files
 ~~~~~~~~~~~~~~~~~~~
@@ -1125,7 +1145,7 @@ Status codes
 +--------+-------------------------------------------------------------+
 | 401    | missing or wrong bearer token, or ``x-api-key`` when no     |
 |        | Authorization header is sent; the two harness pages also    |
-|        | read ``?token=`` (see Request page)                         |
+|        | read ``?key=`` (see Request page)                           |
 +--------+-------------------------------------------------------------+
 | 403    | relayed from the upstream provider. Reef issues none of its |
 |        | own: an unaccepted token is 401, and per-scenario           |
@@ -1188,11 +1208,12 @@ Record and commit history
 
 ``GET /reef/scenarios/{scenario}/records`` reads retained record metadata,
 including consumed records. ``after_sequence`` defaults to 0 and ``limit``
-defaults to 50 (1–100). Records are oldest first; ``next_after_sequence`` is
-null at the end. Each row contains ``sequence``, ``agent_record_id``,
-``request_type``, ``created_at``, ``references``, the recorded
-``artifact_ref``, and the payload's ``score`` field. No record payload or
-learning classification is included.
+defaults to 50 (1 to 100). ``request_type`` (``inference``, ``report`` or
+``train``) lists one type only; another value is HTTP 400. Records are oldest
+first; ``next_after_sequence`` is null at the end. Each row contains
+``sequence``, ``agent_record_id``, ``request_type``, ``created_at``,
+``references``, the recorded ``artifact_ref``, and the payload's ``score``
+field. No record payload or learning classification is included.
 
 ``GET /reef/scenarios/{scenario}/records/{record_id}`` returns that metadata
 and the stored ``payload``. A missing body returns 404: it may have expired or
