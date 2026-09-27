@@ -21,9 +21,11 @@ When invoked with agent arguments (e.g. ``reef-pi -p "fix the bug"``):
      record, the copy holds copies of the files the install wrote and links
      to the client state, nothing else; a link a session put at a client
      state path is removed first.
-  3. Runs the agent binary as a subprocess. SIGHUP (the terminal closed)
-     and SIGTERM are passed to the agent; once it exits, the steps below
-     still run and the wrapper exits 128 plus the signal number.
+  3. Runs the agent binary as a subprocess, with the adapter's
+     ``client_args`` ahead of the person's arguments unless the first is one
+     of its ``client_version_args``. SIGHUP (the terminal closed) and SIGTERM
+     are passed to the agent; once it exits, the steps below still run and
+     the wrapper exits 128 plus the signal number.
   4. After the agent exits, persists the captured receipts (the
      ``x-reef-agent-record-id`` values from each response) to disk and
      removes the temp copy.
@@ -188,6 +190,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import sqlite3
@@ -1127,6 +1130,9 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
         # The loop's session log outlives the temp copy: it lands beside the installed tree.
         env.setdefault("REEF_NATIVE_SESSION_DIR", str(Path(compose_dir).resolve() / "sessions"))
 
+    # Ahead of the person's arguments: a binary that reads the last of a repeated flag keeps the person's.
+    # A version flag starts no session, and a binary may take it only when nothing is ahead of it.
+    leading_args = () if args and args[0] in descriptor.client_version_args else descriptor.client_args
     # A closed terminal (SIGHUP) or a kill (SIGTERM) would end the wrapper before its cleanup, leaving the temp
     # copy, whose binding holds the token, behind: pass the signal to the agent, wait for it, then clean up.
     received: list[int] = []
@@ -1150,7 +1156,7 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
         env[env_var] = temp_dir
         if not received:
             # As subprocess.run does: Ctrl-C reaches the agent too, and a KeyboardInterrupt here kills it.
-            with subprocess.Popen([binary, *args], env=env) as agent:
+            with subprocess.Popen([binary, *leading_args, *args], env=env) as agent:
                 if received:
                     agent.send_signal(received[0])  # it came while the agent started
                 try:
@@ -2409,20 +2415,28 @@ def _waiting_for_review(rows: Sequence[Mapping[str, Any]]) -> list[tuple[int, Ma
 def _usage(adapter: str) -> str:
     """The wrapper's own subcommands, printed before the agent's help."""
     prog = f"reef-{adapter}"
-    return "\n".join(
-        [
-            f"{prog}: run {adapter} through reef's capture proxy, or one of",
-            f"  {prog} report --score S [--feedback TEXT] [--per-receipt]      score the last run's receipts",
-            f'  {prog} evolve "<what it should do>" [--wait] [--timeout SECONDS]   ask for a harness change',
-            f"  {prog} wait <request id> [--timeout SECONDS] [--poll]            wait for a request's result",
-            f"  {prog} page <step> [--print]                                     fetch a step's page and open it",
-            f"  {prog} doctor                                                     check what the install needs",
-            f"  {prog} setup [--yes] [--mark NAME] [--release ID]                 check off what a release requires",
-            f"  {prog} setup --json | --set NAME=VALUE | --run NAME [--release ID]  one item at a time, for scripts",
-            f"  {prog} update [--release ID]                                       install the served release here",
-            f"Anything else runs {adapter} with the same arguments; --help and -h print its help after this.",
-        ]
-    )
+    descriptor = get_adapter(adapter)
+    lines = [
+        f"{prog}: run {adapter} through reef's capture proxy, or one of",
+        f"  {prog} report --score S [--feedback TEXT] [--per-receipt]      score the last run's receipts",
+        f'  {prog} evolve "<what it should do>" [--wait] [--timeout SECONDS]   ask for a harness change',
+        f"  {prog} wait <request id> [--timeout SECONDS] [--poll]            wait for a request's result",
+        f"  {prog} page <step> [--print]                                     fetch a step's page and open it",
+        f"  {prog} doctor                                                     check what the install needs",
+        f"  {prog} setup [--yes] [--mark NAME] [--release ID]                 check off what a release requires",
+        f"  {prog} setup --json | --set NAME=VALUE | --run NAME [--release ID]  one item at a time, for scripts",
+        f"  {prog} update [--release ID]                                       install the served release here",
+    ]
+    if descriptor.client_args:
+        version_flags = ", ".join(descriptor.client_version_args)
+        exception = f", unless the first is one of {version_flags}" if version_flags else ""
+        lines.append(
+            f"Anything else runs {adapter} with {shlex.join(descriptor.client_args)} ahead of the same arguments"
+            f"{exception}; --help and -h print its help after this."
+        )
+    else:
+        lines.append(f"Anything else runs {adapter} with the same arguments; --help and -h print its help after this.")
+    return "\n".join(lines)
 
 
 def main() -> None:

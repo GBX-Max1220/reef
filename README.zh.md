@@ -5,7 +5,7 @@
   <img src="docs/assets/reef-logo-light.svg" alt="Reef" width="220">
 </picture>
 
-<h3>面向自我进化 Agent 的持续学习基础设施</h3>
+<h3>面向持续自我进化 Agent 的基础设施</h3>
 
 [![CI](https://github.com/Human-Agent-Society/reef/actions/workflows/ci.yml/badge.svg)](https://github.com/Human-Agent-Society/reef/actions/workflows/ci.yml)
 [![PyPI package: reef-infra](https://img.shields.io/pypi/v/reef-infra?label=PyPI%3A%20reef-infra&logo=pypi&logoColor=white)](https://pypi.org/project/reef-infra/)

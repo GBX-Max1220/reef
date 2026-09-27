@@ -1102,12 +1102,20 @@ class RequestService:
             return {}
         api = "openai" if info is None else info.served_api
         client_models = () if info is None else info.client_models
+        metadata = None if info is None else info.model_metadata.get(model)
+        if metadata is None and info is not None and model == info.served_model:
+            metadata = info.served_metadata
         override = scenario.model_config.runtime
         if override is not None:
             selected = ModelBinding.from_runtime(override)
             model, api = selected.model, selected.api
+            if descriptor.name == "codex":
+                selected = selected.with_metadata(None if info is None else info.model_metadata.get(model))
+            metadata = selected.metadata
             client_models = ()
-        binding = ModelBinding(base_url=service_url, model=model, api_key=TOKEN_PLACEHOLDER, api=api)
+        binding = ModelBinding(
+            base_url=service_url, model=model, api_key=TOKEN_PLACEHOLDER, api=api, metadata=metadata
+        )
         nodes = [(str(entry["name"]), entry.get("config")) for entry in entries if not entry.get("disabled")]
         try:
             bound = binding.compose_nodes(descriptor, models=client_models)
