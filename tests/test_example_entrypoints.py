@@ -104,6 +104,18 @@ def _load_harness(monkeypatch, example: str):
             "work/polyomino_packing/lab",
             "Qwen/Qwen3-8B",
         ),
+        *[
+            (
+                "guidance_ttt",
+                "tttd",
+                task,
+                (f"harbor/{task}",),
+                (None,),
+                f"work/{task}/lab",
+                "Qwen/Qwen3-8B",
+            )
+            for task in ("lasso_path", "ahc058", "trimul")
+        ],
         (
             "tttd",
             "tttd",
@@ -170,7 +182,11 @@ def test_reef_eval_entrypoint_dispatches_the_documented_workload(
     }.items():
         monkeypatch.setenv(key, value)
 
-    if task_name is not None:
+    if example == "guidance_ttt":
+        for name in ("GUIDANCE_CONFIG", "GUIDANCE_STATE_DIR", "GUIDANCE_MODEL"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("GUIDANCE_TASK", task_name or "polyomino_packing")
+    elif task_name is not None:
         monkeypatch.setenv("TTTD_TASK", task_name)
 
     if example == "sao":
@@ -182,7 +198,10 @@ def test_reef_eval_entrypoint_dispatches_the_documented_workload(
 
         monkeypatch.setattr(urllib.request, "urlopen", _training_releases)
 
-    runpy.run_path(str(EXAMPLE_DIRS[example] / "run.py"))
+    # Match `python /path/to/run.py`: runpy alone neither adds the script
+    # directory to sys.path nor executes a guarded __main__ entrypoint.
+    monkeypatch.syspath_prepend(str(EXAMPLE_DIRS[example]))
+    runpy.run_path(str(EXAMPLE_DIRS[example] / "run.py"), run_name="__main__")
 
     example_root = EXAMPLE_DIRS[example]
     assert [str(task.relative_to(example_root)) for _, task, _, _ in calls] == list(expected_tasks)
