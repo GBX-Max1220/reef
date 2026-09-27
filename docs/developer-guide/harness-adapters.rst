@@ -146,6 +146,9 @@ Node paths and transformations are:
   permission. Hermes requires this consent before loading a plugin; plugin
   tools are then available through ``tool_search`` and ``tool_call``.
 
+Command and plugin configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The quirks add the commands root to ``skills.external_dirs`` twice: beside
 the home (``${HERMES_HOME}/../hermes-commands``) for an episode, and under
 the install root (``${REEF_HARNESS_DEST}/hermes-commands``) for a
@@ -159,6 +162,9 @@ string in ``skills.external_dirs`` is one entry, as Hermes reads it.
 Rendering rejects any other value in these three settings that is not a
 list of strings.
 
+Session state
+^^^^^^^^^^^^^
+
 A ``reef-hermes`` session keeps ``state.db``, the session snapshots under
 ``sessions/``, and the logs under ``logs/`` in the installed tree, so a
 later session finds what an earlier one wrote. Hermes ends a session by
@@ -171,6 +177,9 @@ manifest it rewrites at every start, the one essential skill it seeds
 when a skill is loaded (``.usage.json`` and its lock). An episode lists them
 in ``cleanup_whitelist``; in a ``reef-hermes`` session they are written into
 the installed release's ``skills/``.
+
+Model binding and approvals
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The model binding uses a custom provider with a literal key in
 ``config.yaml`` and supports only the ``openai`` dialect. Hermes's default
