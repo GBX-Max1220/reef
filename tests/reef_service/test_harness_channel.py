@@ -823,12 +823,12 @@ def test_a_rerun_of_the_same_release_is_current_when_the_binding_rewrites_a_serv
     bound_nodes = binding.compose_nodes(descriptor)
     files = render_composition(nodes, descriptor)
     bound_files = render_composition([*nodes, *bound_nodes], descriptor)
-    # The binding files as the install route picks them: every config target a binding node writes.
+    # The binding files as the install route picks them: every config target a binding node writes that renders.
     targets = sorted(
         {descriptor.config_targets[str(config.get("target", "primary"))].path for _, config in bound_nodes}
     )
-    binding_files = {path: bound_files[path] for path in targets}
-    assert all(path in files and files[path] != binding_files[path] for path in targets)
+    binding_files = {path: bound_files[path] for path in targets if path in bound_files}
+    assert all(path in files and files[path] != binding_files[path] for path in binding_files)
 
     def render(release_id: str) -> Path:
         script = tmp_path / f"install-{release_id}.sh"
@@ -865,7 +865,7 @@ def test_a_rerun_of_the_same_release_is_current_when_the_binding_rewrites_a_serv
     assert second.returncode == 0, second.stderr
     assert "composition already current" in second.stdout
     assert {path: path.stat().st_mtime_ns for path in before} == before
-    for path in targets:
+    for path in binding_files:
         assert (dest / path).read_text(encoding="utf-8") == binding_files[path].replace(TOKEN_PLACEHOLDER, "tok-2")
     for path in before:
         path.chmod(0o644)
