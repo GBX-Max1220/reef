@@ -81,26 +81,98 @@ opencode
 ~~~~~~~~
 
 The ``opencode`` adapter runs ``opencode run --format json --auto "<task>"``
-headless. ``OPENCODE_CONFIG_DIR`` relocates its config directory, the XDG
-variables relocate its data, cache, and state, and ``npm_config_cache``
-relocates the npm cache of its boot install, so an episode keeps its files
-inside those directories. The ``opencode-session-sqlite`` reader reads an
-episode back from ``opencode.db`` in the data directory: one event per
-message, with the message's parts, its text among them, as ``content``.
+headless. It renders configuration to ``opencode/opencode.json``, skills to
+``opencode/skill/<name>/SKILL.md``, and commands to
+``opencode/command/<name>.md``.
 
-The defaults keep autoupdate and sharing off, allow every permission, and
-set ``enabled_providers`` to ``["reef"]``, so opencode offers only the
-provider the model binding writes and not its own zen provider. Rendering
-rejects a tree that turns autoupdate or sharing back on or changes that
-list.
+Write a skill or command
+^^^^^^^^^^^^^^^^^^^^^^^^
 
-The model binding is the only writer of ``provider`` and ``model``. It
-renders after the tree, replaces every value it writes, and always writes a
-non-empty ``apiKey``, which a tree cannot hold because admission rejects an
-inline credential. Rendering therefore rejects a tree that sets
-``provider`` or ``model`` at all, sets ``disabled_providers``, or chooses a
-model elsewhere (``small_model``, or the ``model`` of an agent or a
-command).
+For a skill named ``notes``, use a body such as:
+
+.. code:: text
+
+   ---
+   name: notes
+   description: Summarize the changes made during a task.
+   ---
+   List the changed files and the checks that ran.
+
+If a skill has no frontmatter, Reef supplies its directory name and first
+line as quoted ``name`` and ``description`` strings. If you provide your own
+frontmatter, include both fields.
+
+A command named ``review`` can select an existing agent:
+
+.. code:: text
+
+   ---
+   name: review
+   description: Review the current changes.
+   agent: plan
+   subtask: false
+   ---
+   Review the changes and explain any correctness problems.
+
+Command fields have these constraints:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Type and constraint
+   * - ``name``
+     - Optional; must match the command's file name. The name replaces any
+       existing command with that name, including ``/reefine``.
+   * - ``description``, ``variant``
+     - Strings when present.
+   * - ``agent``
+     - A string naming an enabled tree agent or a built-in agent: ``build``,
+       ``plan``, ``general``, ``explore``, ``title``, ``summary``, or ``compaction``.
+   * - ``subtask``
+     - A boolean when present.
+   * - ``model``
+     - Not allowed; Reef's model binding selects the model.
+
+Tree agents are configured under ``agent`` (or the older ``mode``). Their
+``disable`` and ``hidden`` fields are booleans, and ``mode`` is ``subagent``,
+``primary``, or ``all``. An agent may not set a different ``name``.
+``default_agent`` must name an enabled, non-hidden agent that is not a subagent.
+Without ``default_agent``, keep at least one agent meeting those conditions.
+Reef rejects invalid configurations before opencode can fail to start or load
+a command.
+
+Configuration and model binding
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The defaults keep autoupdate and sharing off, allow every permission, and set
+``enabled_providers`` to ``["reef"]``. Rendering rejects changes to those
+update, sharing, and provider-list settings.
+
+Reef's model binding writes ``provider`` and ``model`` after the tree. It
+replaces every value it writes and supplies a non-empty ``apiKey``; the tree
+cannot supply an inline credential. Do not set ``provider``, ``model``,
+``disabled_providers``, or ``small_model`` in the tree, or choose a model in
+an agent or command. These settings would override the deployment's binding
+and are rejected.
+
+Session files and web search
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``OPENCODE_CONFIG_DIR`` relocates configuration. XDG variables relocate data,
+cache, and state; ``npm_config_cache`` relocates the boot install's npm cache.
+This keeps episode files inside the declared directories.
+
+The ``opencode-session-sqlite`` trajectory reader reads ``opencode.db`` in the
+data directory. It emits one event per message, with the message's parts,
+including text, as ``content``.
+
+Interactive ``reef-opencode`` sets ``OPENCODE_ENABLE_EXA=1`` to register the
+Exa ``websearch`` tool for provider ``reef`` without an API key. Evaluation
+episodes do not set it and do not search the web.
+
+Frontmatter parsing compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Command and skill files must write their frontmatter in the plain form: a
 ``---`` line, a YAML mapping with no tags, and a closing ``---`` line.
@@ -119,34 +191,6 @@ as a space where PyYAML fails. Rendering reads each plain value with the
 js-yaml types, so ``1e5`` is a number and ``yes`` a string, as opencode
 reads them, and it rejects a date that does not exist, such as
 ``2001-13-45``.
-
-Rendering also checks what opencode needs to load each file:
-
-- opencode lists only a skill whose ``SKILL.md`` carries ``name`` and
-  ``description``. A skill file with no frontmatter gets both, as quoted
-  strings: the name of its directory and its first line. A frontmatter block
-  of its own without both is rejected.
-- A command file's frontmatter ``name``, when set, must be its file name.
-  opencode files the command under that name, in place of the command
-  already named so, ``/reefine`` included.
-- A command's ``agent`` must name an agent that the tree defines under
-  ``agent`` (or the older ``mode``) and does not disable, or one of
-  opencode's built-in agents: ``build``, ``plan``, ``general``, ``explore``,
-  and the hidden ``title``, ``summary``, and ``compaction``.
-- A command's ``description``, ``agent``, ``variant``, and ``subtask`` must
-  have the types opencode reads, and so must an agent's ``disable`` and
-  ``hidden`` (true or false) and ``mode`` (``subagent``, ``primary``, or
-  ``all``).
-- ``default_agent`` must name such an agent that is neither a subagent nor
-  hidden, and a tree with no ``default_agent`` must keep at least one such
-  agent. An agent must not set a ``name`` other than its own.
-
-Otherwise opencode fails the command, or every run, with an unexplained
-error or a rejection of its whole configuration.
-
-``reef-opencode`` sets ``OPENCODE_ENABLE_EXA=1``, which registers opencode's
-``websearch`` tool (Exa, no key needed) for provider ``reef``. Episodes do
-not set it, so a benchmark episode does not search the web.
 
 DeepSeek Harness
 ~~~~~~~~~~~~~~~~
