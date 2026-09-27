@@ -17,6 +17,12 @@ precedence over repository guidance.
   architecture, public contracts, persistence, or project policy.
 - Reproduce bugs and inspect the relevant implementation before changing it.
   Avoid speculative fixes, unrelated formatting, and unnecessary abstractions.
+- Before submitting a pull request, review every changed line against
+  [Python style and design](#python-style-and-design),
+  [Code structure and readability](#code-structure-and-readability), and
+  [Naming and terminology](#naming-and-terminology), and fix any violation.
+  Passing pre-commit does not replace this review; these rules are not all
+  checked mechanically.
 - Use [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md).
   Explain the problem, resulting behavior, compatibility impact, and actual
   verification results. Disclose non-trivial AI assistance. The human

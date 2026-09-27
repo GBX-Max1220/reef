@@ -30,6 +30,7 @@ remains responsible for every submitted line, claim, and test result.
 ## Checklist
 
 - [ ] The change is focused and contains no unrelated cleanup.
+- [ ] Changed code satisfies the style, code structure, and naming rules in `AGENTS.md`.
 - [ ] Tests cover behavior changes, or this pull request does not change behavior.
 - [ ] Public interface changes include contract tests, or no public interface changes are present.
 - [ ] Affected user and developer documentation is updated, or no documentation update is required.
