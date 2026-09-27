@@ -283,6 +283,8 @@ def test_hermes_quirks_emit_the_config_the_plugin_grants_and_skill_frontmatter()
         "base_url": "http://127.0.0.1:9/v1",
         "api_key": "k-1",
     }
+    # An OpenRouter host is hermes's own provider, whose key it reads from the environment or its home's .env.
+    assert files["hermes/.env"] == "OPENAI_API_KEY=k-1\n"
     assert config["agent"] == {"max_turns": 40}
     # The defaults that keep an episode hermetic and single request, and the second skill root.
     assert config["approval"] == {"tirith_enabled": False}
@@ -444,3 +446,72 @@ def test_pi_skill_without_frontmatter_gets_name_and_description() -> None:
     )
     own = ("skill", {"name": "own", "text": "---\nname: own\ndescription: mine\n---\nBody.\n"})
     assert render_composition([own], get_adapter("pi"))["pi-agent/skills/own/SKILL.md"] == own[1]["text"]
+
+
+@pytest.mark.parametrize("reasoning", [True, False])
+def test_codex_catalog_uses_bound_capabilities(reasoning: bool) -> None:
+    from reef.core.model_metadata import ModelMetadata
+
+    descriptor = get_adapter("codex")
+    binding = ModelBinding("http://up", "custom/model", api="responses", metadata=ModelMetadata(640_000, reasoning))
+    files = render_composition(binding.compose_nodes(descriptor), descriptor)
+    config = tomllib.loads(files["codex/config.toml"])
+    assert config["model_catalog_json"] == "models.json"
+    model = next(model for model in json.loads(files["codex/models.json"])["models"] if model["slug"] == binding.model)
+    assert model["slug"] == binding.model
+    assert model["context_window"] == model["max_context_window"] == 640_000
+    assert bool(model["supported_reasoning_levels"]) is reasoning
+    assert model["supports_reasoning_summary_parameter"] is reasoning
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"context_window": True, "reasoning": True},
+        {"context_window": 0, "reasoning": True},
+        {"context_window": 100, "reasoning": "yes"},
+        {"context_window": 100, "reasoning": True, "base_instructions": "override"},
+    ],
+)
+def test_codex_rejects_invalid_model_metadata(metadata: dict[str, object]) -> None:
+    with pytest.raises(RenderError, match="codex model"):
+        render_composition(
+            [("config", {"target": "models", "data": {"models": {"m": metadata}}})], get_adapter("codex")
+        )
+
+
+@pytest.mark.parametrize(
+    ("model", "native_model"),
+    [
+        ("gpt-5.4", "gpt-5.4"),
+        ("openai/gpt-5.4", "gpt-5.4"),
+        ("gpt-5.4-2026-03-05", "gpt-5.4"),
+        ("gpt-5.4-mini", "gpt-5.4-mini"),
+        ("gpt-6-astra", "gpt-6-astra"),
+        ("openai/gpt-6-astra", "gpt-6-astra"),
+    ],
+)
+@pytest.mark.parametrize("reasoning", [True, False])
+def test_codex_overrides_native_capabilities_and_keeps_instructions(
+    model: str, native_model: str, reasoning: bool
+) -> None:
+    from reef.core.model_metadata import ModelMetadata
+    from reef.harness.adapters.codex.quirks import bundled_model_catalog
+
+    descriptor = get_adapter("codex")
+    binding = ModelBinding("http://up", model, api="responses", metadata=ModelMetadata(640_000, reasoning))
+    files = render_composition(binding.compose_nodes(descriptor), descriptor)
+    assert tomllib.loads(files["codex/config.toml"])["model_catalog_json"] == "models.json"
+    bundled = bundled_model_catalog()
+    catalog = {entry["slug"]: entry for entry in json.loads(files["codex/models.json"])["models"]}
+    native = bundled[native_model]
+    expected = {
+        **native,
+        "slug": model,
+        "context_window": 640_000,
+        "max_context_window": 640_000,
+        "supports_reasoning_summary_parameter": reasoning,
+        "supported_reasoning_levels": native["supported_reasoning_levels"] if reasoning else [],
+        "default_reasoning_level": native["default_reasoning_level"] if reasoning else None,
+    }
+    assert catalog == {**bundled, model: expected}

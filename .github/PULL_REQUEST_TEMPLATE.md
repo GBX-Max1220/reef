@@ -30,6 +30,7 @@ remains responsible for every submitted line, claim, and test result.
 ## Checklist
 
 - [ ] The change is focused and contains no unrelated cleanup.
+- [ ] Changed code satisfies the style, code structure, and naming rules in `AGENTS.md`.
 - [ ] Tests cover behavior changes, or this pull request does not change behavior.
 - [ ] Public interface changes include contract tests, or no public interface changes are present.
 - [ ] Affected user and developer documentation is updated, or no documentation update is required.
@@ -40,6 +41,6 @@ remains responsible for every submitted line, claim, and test result.
 
 ## Review and merge
 
-The Merge Oncall is assigned automatically. See the
+Reviewers are requested automatically from `CODEOWNERS`. See the
 [maintenance model](https://github.com/Human-Agent-Society/reef/blob/main/.github/MAINTAINER.md)
 for review and merge requirements.
