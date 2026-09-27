@@ -22,9 +22,11 @@ everything the shared engines need to drive one harness binary:
 - ``install`` (optional): the vendor's install channel for the binary at a
   pinned version, consumed by the served install script; reef never hosts
   or proxies binary bytes.
-- ``client_env`` (optional): the variables a ``reef-<adapter>`` run adds to
-  a person's session and an episode never gets (``{root}`` substituted with
-  the install root).
+- ``client_env`` and ``client_args`` (optional): the variables and the leading
+  arguments a ``reef-<adapter>`` run adds when a person runs the binary, which
+  an episode never gets (``{root}`` in a ``client_env`` value is the install
+  root); ``client_version_args`` names the version flags that get no leading
+  arguments.
 - ``client_state`` (optional): the sessions and settings a ``reef-<adapter>`` run
   keeps in the installed tree, so a later run finds them.
 - ``self_isolating`` (optional): the adapter runs episodes inside its own
@@ -199,6 +201,12 @@ class AdapterDescriptor:
     #: while reef pins its version. ``{root}`` in a value is the install root,
     #: for a directory of the installed tree outside the relocated composition.
     client_env: Mapping[str, str] = field(default_factory=dict)
+    #: Arguments the ``reef-<adapter>`` wrapper puts ahead of the person's own when
+    #: it runs the binary: a setting the rendered tree must not be able to undo.
+    client_args: tuple[str, ...] = ()
+    #: First arguments that get no ``client_args``: the binary's version flags, which start no
+    #: session and which a binary may answer early only when nothing else is on the command line.
+    client_version_args: tuple[str, ...] = ()
     #: Commands the binary expects on PATH at first start and otherwise fetches
     #: itself, as ``(command, package)``; the install script names the missing ones.
     client_tools: tuple[tuple[str, str], ...] = ()
@@ -283,6 +291,8 @@ def load_descriptor(path: Path) -> AdapterDescriptor:
         isinstance(key, str) and isinstance(value, str) for key, value in client_env.items()
     ):
         raise DescriptorError(f"{where} 'client_env' must map strings to strings")
+    client_args = _str_list(data.get("client_args", []), f"{where} 'client_args'")
+    client_version_args = _str_list(data.get("client_version_args", []), f"{where} 'client_version_args'")
     client_tools = _parse_client_tools(data.get("client_tools"), where)
     client_state = _parse_client_state(data.get("client_state"), where)
     finalize, quirk_whitelist, validate_execution = _load_quirks(data.get("quirks"), where)
@@ -305,6 +315,8 @@ def load_descriptor(path: Path) -> AdapterDescriptor:
         tree_path=_parse_tree_path(files, where),
         validate_execution=validate_execution,
         client_env=dict(client_env),
+        client_args=client_args,
+        client_version_args=client_version_args,
         client_tools=client_tools,
         client_state=client_state,
     )
