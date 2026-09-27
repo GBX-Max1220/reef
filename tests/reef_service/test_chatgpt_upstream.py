@@ -140,7 +140,7 @@ def test_the_backend_body_keeps_instructions_and_asks_for_encrypted_reasoning() 
     assert body["input"] == [{"role": "user", "content": "hi"}]
     assert body["include"] == ["message.output_text.logprobs", "reasoning.encrypted_content"]
     assert "service_tier" not in body
-    assert backend_request_body({"input": [{"role": "user", "content": "hi"}]})["instructions"]
+    assert "instructions" not in backend_request_body({"input": [{"role": "user", "content": "hi"}]})
 
 
 @pytest.mark.unit

@@ -31,8 +31,6 @@ BACKEND_PATH = "/codex/responses"
 SIGN_IN_HINT = "sign in with `codex login`"
 #: Request fields the backend refuses.
 DROPPED_FIELDS = ("max_output_tokens", "prompt_cache_retention", "prompt_cache_options", "service_tier")
-#: The backend requires instructions; a request without system text gets these.
-DEFAULT_INSTRUCTIONS = "You are a helpful assistant."
 
 
 class CodexSignIn:
@@ -53,12 +51,11 @@ class CodexSignIn:
         except FileNotFoundError:
             raise UpstreamStatusError(f"no ChatGPT sign-in at {self.path}: {SIGN_IN_HINT}", status=401) from None
         tokens = document.get("tokens") if isinstance(document, dict) else None
-        if not isinstance(tokens, dict):
+        if not isinstance(tokens, dict) or not all(
+            isinstance(tokens.get(key), str) and tokens[key] for key in ("access_token", "account_id")
+        ):
             raise UpstreamStatusError(f"{self.path} holds no ChatGPT sign-in: {SIGN_IN_HINT}", status=401)
-        token, account = tokens.get("access_token"), tokens.get("account_id")
-        if not isinstance(token, str) or not token or not isinstance(account, str) or not account:
-            raise UpstreamStatusError(f"{self.path} holds no ChatGPT sign-in: {SIGN_IN_HINT}", status=401)
-        return token, account
+        return tokens["access_token"], tokens["account_id"]
 
 
 class ChatGPTRequestHeaders(RequestHeadersFactory):
@@ -77,17 +74,6 @@ class ChatGPTRequestHeaders(RequestHeadersFactory):
         }
 
 
-def message_text(content: object) -> str:
-    """The text of a Responses message's content: a string, or its parts' ``text``."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            part["text"] for part in content if isinstance(part, dict) and isinstance(part.get("text"), str)
-        )
-    return ""
-
-
 def backend_request_body(payload: Mapping[str, Any]) -> dict[str, Any]:
     """``payload`` as the backend takes it: streamed and unstored, its system and developer items moved into
     ``instructions``, encrypted reasoning included, and without the fields the backend refuses."""
@@ -97,7 +83,11 @@ def backend_request_body(payload: Mapping[str, Any]) -> dict[str, Any]:
     kept = []
     for item in items:
         if isinstance(item, dict) and item.get("role") in ("system", "developer"):
-            instructions.append(message_text(item.get("content")))
+            content = item.get("content")
+            if isinstance(content, str):
+                instructions.append(content)
+            elif isinstance(content, list):
+                instructions += [part["text"] for part in content if isinstance(part, dict) and "text" in part]
         else:
             kept.append(item)
     body = {key: value for key, value in payload.items() if key not in DROPPED_FIELDS}
@@ -106,9 +96,9 @@ def backend_request_body(payload: Mapping[str, Any]) -> dict[str, Any]:
     include = list(payload.get("include") or [])
     if "reasoning.encrypted_content" not in include:
         include.append("reasoning.encrypted_content")
-    body.update(
-        instructions="\n\n".join(instructions) or DEFAULT_INSTRUCTIONS, stream=True, store=False, include=include
-    )
+    if instructions:
+        body["instructions"] = "\n\n".join(instructions)
+    body.update(stream=True, store=False, include=include)
     return body
 
 
@@ -136,8 +126,8 @@ class ChatGPTInferenceHandler(HttpInferenceHandler):
         return error
 
     async def inference_stream(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> InferenceStream:
-        """The backend's events as it sends them, named an event stream: the backend names no content type, and
-        Reef relays a stream as events, and Codex reads it, only by that type."""
+        """The backend's events as it sends them, typed ``text/event-stream``. The backend sends no content type,
+        and Reef's stream route and Codex both read a stream as events only by that type."""
         stream = await super().inference_stream(artifact, path, payload)
         headers = {name: value for name, value in stream.headers.items() if name.lower() != "content-type"}
         return InferenceStream(
