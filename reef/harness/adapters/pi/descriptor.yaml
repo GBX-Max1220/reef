@@ -79,7 +79,7 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
   responses:
     - target: models
@@ -94,7 +94,7 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
   anthropic:
     - target: models
@@ -109,5 +109,5 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
