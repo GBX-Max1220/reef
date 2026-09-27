@@ -130,15 +130,30 @@ Headers
 |                                   | specific release, use ``?release_id=`` on the harness   |
 |                                   | manifest or install route.                              |
 +-----------------------------------+---------------------------------------------------------+
-| ``x-reef-tag-<name>``             | optional on inference: opaque key/value context stored  |
-|                                   | on the record under ``metadata.tags``, for a processor  |
-|                                   | to correlate on. Reef reads one value: on a scenario    |
-|                                   | whose clients pull its files, ``x-reef-tag-release``    |
-|                                   | names the release the client runs, and when the         |
-|                                   | scenario has that release the record's ``artifact_ref`` |
-|                                   | names it. Inference still answers from the current      |
-|                                   | release.                                                |
+| ``x-reef-tag-<name>``             | optional on inference: context stored under             |
+|                                   | ``metadata.tags``. The ``release`` tag can select the   |
+|                                   | record's release; see `Client release tags`_ below.     |
 +-----------------------------------+---------------------------------------------------------+
+
+Client release tags
+~~~~~~~~~~~~~~~~~~~
+
+``x-reef-tag-release`` identifies the harness release installed by the client.
+Reef uses it as the inference record's ``artifact_ref`` only when all three
+conditions hold:
+
+- The scenario serves files for clients to pull.
+- Its surface has no inference hooks, and it has no training runtime.
+- The tag names a release in that scenario's catalog.
+
+Otherwise the record names the current served release, including when the tag
+is absent or unknown. The tag does not change which release serves inference.
+
+For example, a harness client installed release A before the service published
+B. If these conditions hold, its calls tagged with A are recorded against A;
+an untagged call or a call tagged with an unknown release is recorded against B.
+This tag is separate from ``x-reef-release-id``, which binds a scenario to its
+starting release.
 
 Scenario model settings
 -----------------------
@@ -521,8 +536,10 @@ Send the same body you would send to the provider. Reef never touches your
 sampling parameters. 
 
 Before calling the model, Reef reads the scenario's current artifact ref and
-builds the request against that release. The stored exchange uses the same ref,
-so an update completing mid-request does not change what the receipt records.
+builds the request against that release. The stored exchange normally uses
+that frozen ref, even if an update completes mid-request. For a scenario that
+only delivers files to clients, `Client release tags`_ describes when the
+record instead names the client's installed harness release.
 
 On a weight-serving deployment it adds engine
 bookkeeping keys: ``lora_path`` to address the served adapter and
@@ -1219,10 +1236,9 @@ first; ``next_after_sequence`` is null at the end. Each row contains
 ``sequence``, ``agent_record_id``, ``request_type``, ``created_at``,
 ``references``, the recorded ``artifact_ref``, and the payload's ``score``
 field. No record payload or learning classification is included. An inference
-record's ``artifact_ref`` is the release that served the call, or, on a
-scenario whose clients pull its files, the release the client says it runs
-(``x-reef-tag-release``) when the scenario has it: a ``reef-<adapter>`` session
-keeps running the release it installed until the person updates.
+record's ``artifact_ref`` names the release that served the call, except when
+the conditions in `Client release tags`_ select the client's installed harness
+release.
 
 ``GET /reef/scenarios/{scenario}/records/{record_id}`` returns that metadata
 and the stored ``payload``. A missing body returns 404: it may have expired or
