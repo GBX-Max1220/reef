@@ -29,6 +29,39 @@ state under ``.reef/reefine/``. For custom deployments, copy
 `Reefine tutorial <https://github.com/Human-Agent-Society/reef/tree/main/tutorials/reefine>`__
 includes installation, bug-fix and research demos, and recorded measurements.
 
+On a ChatGPT plan
+-----------------
+
+With a ChatGPT Plus or Pro plan and no API key, Reef can serve the plan
+itself. Sign in once with the Codex CLI (``codex login``, choosing ChatGPT),
+leave ``REEF_UPSTREAM_API_KEY`` unset, and start the profile on the
+``chatgpt`` upstream:
+
+.. code:: bash
+
+   reef serve --recipe reefine \
+     --inference.upstream-api chatgpt \
+     --inference.upstream-url https://chatgpt.com/backend-api \
+     --inference.upstream-model gpt-5.5
+
+``reef-pi`` and ``reef-codex`` sessions, the proposer and evaluation episodes
+then all run on the plan through Reef, and Reef records the sessions' calls as
+it does on a key. Add ``--recipe.config.evolution.adapter codex`` to refine a
+Codex harness.
+
+- Reef reads the sign-in from ``$CODEX_HOME/auth.json`` (``~/.codex/auth.json``
+  by default) for every call and never writes it. Codex renews it when you use
+  Codex; a call on an expired or missing sign-in fails with a message naming
+  ``codex login``.
+- The model must be one the plan offers; a refused model fails with the
+  backend's message.
+- The ``chatgpt`` upstream serves the Responses dialect, so it runs the pi and
+  codex adapters. It listens on loopback only and refuses
+  ``--inference.upstream-api-key``.
+- Codex cannot read the model's metadata from the plan, so the service logs
+  ``Could not read metadata for model``; set ``evolution.model_metadata`` for
+  Codex to give its context window.
+
 How it works
 ------------
 

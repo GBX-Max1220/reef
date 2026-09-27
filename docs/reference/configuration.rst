@@ -606,14 +606,14 @@ shown above; the repository examples all use version 2.
    reef.recipe | the recipe this deployment serves. Required.
    reef.host | 0.0.0.0 | bind address
    reef.port | 8900 | bind port
-   reef.served_url | | the URL a composite recipe's own evaluation calls (episodes and the proposer) reach this service at; the default is loopback on the bind port, so set it when episodes run on another host. A recipe of one component calls its runtime's endpoint directly and ignores it
+   reef.served_url | | the URL a composite recipe's own evaluation calls (episodes and the proposer) reach this service at; the default is loopback on the bind port, so set it when episodes run on another host. A recipe of one component calls its runtime's endpoint directly and ignores it, except on the ``chatgpt`` upstream, whose sign-in only the service holds
    reef.console_origins | [] | exact browser console origins allowed to access the HTTP service; disabled by default
    reef.token | the bearer token the service accepts. Use ``tokens: [...]`` to accept several while rotating.
    reef.model_path | a local HF model directory or a repo id, downloaded on start
    reef.upstream_url | the OpenAI-compatible provider, with no ``/v1`` suffix
    reef.upstream_api_key | its credential. Reef is the only party that sees it.
    reef.upstream_model | the model to request upstream
-   reef.upstream_api | openai | the provider dialect: ``openai`` for Chat Completions, ``responses`` for OpenAI Responses, or ``anthropic`` for an Anthropic-style endpoint
+   reef.upstream_api | openai | the provider dialect: ``openai`` for Chat Completions, ``responses`` for OpenAI Responses, or ``anthropic`` for an Anthropic-style endpoint; or ``chatgpt`` for a person's own ChatGPT plan, signed in through the Codex CLI, which serves the ``responses`` dialect (see "On a ChatGPT plan" in the Reefine guide)
    reef.inference_url | the address the training backend reports | the local engine; set only to front the engines with something else
    reef.inference_timeout_s | 300.0 | per-request timeout
    reef.allow_implicit_scenario_creation | true | when false, an unknown scenario is HTTP 404
