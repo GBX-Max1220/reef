@@ -128,25 +128,17 @@ reaches a deployment through ``POST /reef/train``. ``GET /reef/harness``
 serves the tree, and each evaluation episode renders it with the model
 binding.
 
-Terminus 2 calls the model through litellm. The model binding keeps the
-served name in ``model_name`` and sets ``llm_kwargs.custom_llm_provider`` to
-``litellm_proxy``, litellm's route to an OpenAI-compatible proxy. litellm
-then sends that name unchanged to ``api_base``, whatever vendor prefix it
-carries, and puts the tree's call arguments into the request body:
-``reasoning_effort``, the ``thinking`` budget Harbor sends for a Claude
-model under ``max_thinking_tokens``, and ``llm_call_kwargs`` fields such as
-``provider`` or ``top_k``.
+Run a published tree
+^^^^^^^^^^^^^^^^^^^^
 
-Without that provider, a vendor prefix litellm does not know, such as
-``qwen/qwen3-coder``, fails with ``LLM Provider NOT provided``, and one it
-knows, such as ``deepseek/``, goes to that vendor's own client without its
-vendor prefix. ``custom_openai`` also keeps the name, but it drops
-``reasoning_effort`` and ``thinking``, and a call with an
-``llm_call_kwargs`` field the OpenAI SDK does not take fails. Harbor looks
-up the context limit that Terminus 2 summarizes against under
-``model_name``, so a served name that litellm lists, such as
-``openai/gpt-4o-mini``, keeps its limit. A name litellm does not list gets
-Harbor's fallback of 1,000,000 tokens.
+Before running a declarative Terminus tree locally, prepare:
+
+- A running Reef service and the scenario whose published tree you want to use.
+- A Harbor task directory and a working Docker installation.
+- A trial directory shared with Docker. With colima on macOS, use a path under
+  your home directory; ``$TMPDIR`` is not shared by default.
+- A local tree root containing the ``files`` returned by ``GET /reef/harness``
+  for the scenario, saved under their relative paths.
 
 Evaluation episodes call the upstream directly. A tree that you run through
 Reef yourself also needs the scenario header in ``llm_kwargs.extra_headers``,
@@ -166,13 +158,26 @@ or Reef answers HTTP 400 ``missing or empty x-reef-scenario``. Write this in
      }
    }
 
-Then run ``REEF_TERMINUS_DIR=<root> REEF_TERMINUS_SESSION_DIR=<root>/terminus/sessions
-REEF_TERMINUS_TRIALS_DIR=<trials> reef-terminus --task <task directory>``.
-Harbor bind-mounts the trial directories under ``<trials>`` into the task
-container, so ``<trials>`` must be on a path your Docker shares with its VM.
-colima does not share ``$TMPDIR``, and container writes there never reach
-the host. When a trial has neither a reward nor the verifier's output, its
-error names this mount problem.
+Set the paths to your saved tree and task, then run one task:
+
+.. code:: bash
+
+   TREE_ROOT="$HOME/reef-harness/terminus"
+   TASK_DIR="/path/to/harbor/task"
+   TRIALS_DIR="$HOME/reef-trials"
+   REEF_TERMINUS_DIR="$TREE_ROOT" \
+     REEF_TERMINUS_SESSION_DIR="$TREE_ROOT/terminus/sessions" \
+     REEF_TERMINUS_TRIALS_DIR="$TRIALS_DIR" \
+     reef-terminus --task "$TASK_DIR"
+
+The JSON trial record under ``$TREE_ROOT/terminus/sessions`` contains the
+verifier rewards and ATIF trajectory. The bundled Reefine health task succeeds
+with reward 1. If a local Docker trial has neither reward nor verifier output,
+the runner reports a possible mount problem: check that Docker shares
+``$TRIALS_DIR`` with the host.
+
+Evaluation directories and Docker context
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Reef prepares an evaluation episode for Docker itself. On macOS its root is
 made under ``~/.reef/episodes`` (``is_root_bind_mounted``), which colima and
@@ -185,6 +190,9 @@ keeps the service's ``DOCKER_HOST``, ``DOCKER_CONTEXT``, and
 ``~/.docker``), because ``HOME`` points into the episode and the docker CLI
 reads its current context (colima, Docker Desktop) and the compose plugin
 from that directory.
+
+Python extensions
+^^^^^^^^^^^^^^^^^
 
 Extensions require ``evolution.executor: sandbox`` to isolate the Python
 runner. Harbor runs the terminal task remotely. Enable network access with
@@ -202,6 +210,29 @@ tree and configured executor before Reef writes episode files. It raises
 ``EpisodeLaunchError`` for unsupported combinations and replaces the default
 ``self_isolating`` nesting restriction. Execution, timeout, cleanup, and
 trajectory handling still use the shared episode code.
+
+Model binding and provider compatibility
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Terminus 2 calls the model through litellm. The model binding keeps the
+served name in ``model_name`` and sets ``llm_kwargs.custom_llm_provider`` to
+``litellm_proxy``, litellm's route to an OpenAI-compatible proxy. litellm
+then sends that name unchanged to ``api_base``, whatever vendor prefix it
+carries, and puts the tree's call arguments into the request body:
+``reasoning_effort``, the ``thinking`` budget Harbor sends for a Claude
+model under ``max_thinking_tokens``, and ``llm_call_kwargs`` fields such as
+``provider`` or ``top_k``.
+
+Without that provider, a vendor prefix litellm does not know, such as
+``qwen/qwen3-coder``, fails with ``LLM Provider NOT provided``, and one it
+knows, such as ``deepseek/``, goes to that vendor's own client without its
+vendor prefix. ``custom_openai`` also keeps the name, but it drops
+``reasoning_effort`` and ``thinking``, and a call with an
+``llm_call_kwargs`` field the OpenAI SDK does not take fails. Harbor looks
+up the context limit that Terminus 2 summarizes against under
+``model_name``, so a served name that litellm lists, such as
+``openai/gpt-4o-mini``, keeps its limit. A name litellm does not list gets
+Harbor's fallback of 1,000,000 tokens.
 
 DeepSeek Harness
 ~~~~~~~~~~~~~~~~
@@ -818,61 +849,93 @@ Descriptor fields
 Model binding checks
 ~~~~~~~~~~~~~~~~~~~~
 
-For the ``claude``, ``dsh``, ``hermes``, ``pi``, and ``terminus`` adapters,
-Reef's model binding is the only source of a model call's endpoint,
-credential, and model. The binding renders after the tree and replaces
-every value it writes. One value it writes is the key
-(``ANTHROPIC_AUTH_TOKEN``, hermes ``model.api_key``, dsh ``REEF_API_KEY``,
-pi ``providers.reef.apiKey``, terminus ``llm_kwargs.api_key``), and a tree
-cannot hold a key because admission rejects an inline credential. A key the
-binding writes therefore passes rendering only beside the binding's key,
-and a tree that sets one alone is rejected. Rendering also rejects every
-other key the pinned binary reads to choose the endpoint, the provider, the
-credential, or the model:
+These checks restrict the configuration rendered from a harness tree for
+``claude``, ``dsh``, ``hermes``, ``pi``, and ``terminus``. They are not request-time
+model authorization: the proxy forwards ``model`` and ``models`` as sent, so a
+tool or plugin that constructs its own request can still name another model.
 
-- ``claude``: in the ``settings.json`` ``env``, every ``ANTHROPIC_`` name,
-  the cloud provider switches and their credentials (Bedrock, Vertex,
-  Foundry, and the others), proxies, endpoints, and model names, matched
-  without case as Windows reads the environment; the settings ``model``,
-  ``fallbackModel``, ``availableModels``, ``modelOverrides``,
-  ``advisorModel``, and the other model choices, the credential helpers
-  (``apiKeyHelper``, ``awsAuthRefresh``, ``awsCredentialExport``,
-  ``gcpAuthRefresh``, ``proxyAuthHelper``), and the login method; and a
-  ``model`` in the frontmatter of a command or a skill. A frontmatter block
-  that rendering cannot read the way Claude Code does counts when it holds
-  the word ``model`` or an escape.
-- ``hermes``: ``providers``, ``custom_providers``, ``fallback_model``,
-  ``fallback_providers``, the ``moa`` presets (``presets``, and the older
-  ``reference_models`` and ``aggregator``), ``auxiliary.openrouter_model``,
-  the model aliases (``model_aliases``, ``model.aliases``), and the other
-  names Hermes reads for the model, the endpoint, or the key
-  (``model.model``, ``model.name``, ``model.api_base``, the key names such as
-  ``model.key_env``, and a top-level ``provider``, ``base_url``, or
-  ``api_base``, which Hermes moves into ``model``). Also ``model.api_mode``
-  and ``model.openai_runtime``, which choose the transport the binding does
-  not set: for its ``custom`` provider, ``bedrock_converse`` calls AWS
-  Bedrock and ``codex_app_server`` hands the turn to a ``codex app-server``
-  subprocess. Also a provider, an endpoint, a credential, an ``api_mode``, a
-  model, a ``fallback_chain``, or ``prefer_fast_model`` for an auxiliary
-  task, for delegation, for cron, or for the curator
-  (``curator.auxiliary``). An auxiliary task may keep the provider ``auto``
-  or ``main``, which run it on the main model.
-- ``dsh``: a route in ``llm-pi-ai`` other than the binding's ``reef``, a key
-  on that route the binding does not write, ``agent-default-model``,
-  ``llm-deepseek`` (DeepSeek's own endpoint), the web search endpoint and
-  model, and a provider or a model for the title call, a subagent, a
-  declared agent, or the compaction summary. A patch entry may not name
-  another package, and those plugins may not hold a js expression, which
-  rendering cannot read.
-- ``pi``: a provider in ``models.json`` other than ``reef`` (a new one, or
-  pi's own with another endpoint), a key on ``reef`` the binding does not
-  write, ``enabledModels``, and ``httpProxy``, which sends every call
-  through another host.
-- ``terminus``: a ``llm_kwargs`` key the binding does not write, and a
-  litellm argument in ``llm_call_kwargs`` that sets the endpoint, the
-  provider, a credential, the model, a fallback model, or a logging callback
-  (``base_url``, ``api_base``, ``custom_llm_provider``, ``model``,
-  ``fallbacks``, and the others the quirk lists).
+For rendered configuration, Reef's model binding supplies the endpoint, model,
+and credential after the tree and replaces every value it writes. A tree may
+not contain an inline credential. The renderer accepts the binding's complete
+configuration shape and rejects tree entries that independently change model
+routing. The following groups describe the adapter-specific restrictions.
+
+Claude Code routing
+^^^^^^^^^^^^^^^^^^^
+
+Rendering rejects these settings:
+
+- In ``settings.json`` ``env``: ``ANTHROPIC_`` variables, cloud provider switches
+  and credentials (including Bedrock, Vertex, and Foundry), proxies, endpoints,
+  and model names. Names are matched without case, as on Windows.
+- Model choices such as ``model``, ``fallbackModel``, ``availableModels``,
+  ``modelOverrides``, and ``advisorModel``.
+- Credential helpers: ``apiKeyHelper``, ``awsAuthRefresh``,
+  ``awsCredentialExport``, ``gcpAuthRefresh``, and ``proxyAuthHelper``, plus
+  the login method.
+- ``model`` in command or skill frontmatter. An unreadable frontmatter block
+  is also rejected when it contains the word ``model`` or an escape.
+
+The binding writes the credential as ``ANTHROPIC_AUTH_TOKEN``.
+
+Hermes routing
+^^^^^^^^^^^^^^
+
+Rendering rejects alternative routes and model choices:
+
+- ``providers``, ``custom_providers``, ``fallback_model``, ``fallback_providers``,
+  ``moa`` presets (``presets``, or the older ``reference_models`` and
+  ``aggregator``), and ``auxiliary.openrouter_model``.
+- Aliases (``model_aliases``, ``model.aliases``) and endpoint, model, or credential
+  fields such as ``model.model``, ``model.name``, ``model.api_base``, and
+  ``model.key_env``. Top-level ``provider``, ``base_url``, and ``api_base``
+  are included because Hermes moves them into ``model``.
+- ``model.api_mode`` and ``model.openai_runtime``. These can bypass the custom
+  provider: ``bedrock_converse`` calls AWS Bedrock, while ``codex_app_server``
+  delegates to a ``codex app-server`` subprocess.
+- Provider, endpoint, credential, ``api_mode``, model, ``fallback_chain``, or
+  ``prefer_fast_model`` settings for auxiliary tasks, delegation, cron, or
+  ``curator.auxiliary``. An auxiliary provider may remain ``auto`` or ``main``
+  to use the main model.
+
+The binding writes the credential as ``model.api_key``.
+
+DeepSeek Harness routing
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Rendering rejects:
+
+- ``llm-pi-ai`` routes other than ``reef``, or fields on that route that the
+  binding does not write.
+- ``agent-default-model``, ``llm-deepseek``, and web-search endpoint/model
+  overrides.
+- Provider or model choices for the title call, subagents, declared agents,
+  or compaction summaries.
+- A patch entry naming another package, or JavaScript expressions in the
+  routing plugins, whose values cannot be inspected during rendering.
+
+The binding's credential is ``REEF_API_KEY``.
+
+Pi routing
+^^^^^^^^^^
+
+Rendering rejects providers in ``models.json`` other than ``reef``, fields on
+``reef`` that the binding does not write, ``enabledModels``, and ``httpProxy``.
+The latter would forward all calls through another host. The binding writes
+``providers.reef.apiKey``.
+
+Terminus routing
+^^^^^^^^^^^^^^^^
+
+Rendering rejects ``llm_kwargs`` fields that the binding does not write.
+It also rejects ``llm_call_kwargs`` arguments that select an endpoint, provider,
+credential, model, fallback, or logging callback, including ``base_url``,
+``api_base``, ``custom_llm_provider``, ``model``, and ``fallbacks``. The
+Terminus quirk lists the recognized routing arguments. The binding writes
+``llm_kwargs.api_key``.
+
+Request-body fields
+^^^^^^^^^^^^^^^^^^^
 
 A request body that a tree passes to the bound endpoint reaches the
 provider with the bound key, so rendering rejects one that names a model:
@@ -883,11 +946,6 @@ curator, ``delegation.request_overrides`` with its ``extra_body``, and the
 terminus ``llm_call_kwargs`` (litellm sends a key it does not read in the
 body) with its ``extra_body``. Other body fields, such as OpenRouter's
 ``provider`` preferences, stay admitted.
-
-These checks cover the config the tree renders. Reef's proxy forwards the
-``model`` and ``models`` a request sends as they are, so a request that
-other code builds with the rendered key, such as a tool the model runs, can
-still name another model.
 
 Connect a new agent
 ~~~~~~~~~~~~~~~~~~~
