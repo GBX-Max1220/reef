@@ -867,7 +867,7 @@ Run a Codex session
 -------------------
 
 Install a Codex harness with ``adapter=codex`` and run ``reef-codex`` from
-its project directory. Codex 0.152.1 exposes commands as skills: type
+its project directory. Codex 0.153.4 exposes commands as skills: type
 ``$reefine`` or another ``$name`` in the session, rather than ``/name``.
 
 .. list-table::
