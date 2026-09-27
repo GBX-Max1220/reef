@@ -65,6 +65,9 @@ quirks: reef.harness.adapters.pi.quirks
 # never carries a provider. maxTokens is Reef's reply budget rather than pi's
 # own default of 16384: a reasoning model spends that on its reasoning and
 # answers with no text, which ends the turn with nothing written.
+# defaultModel is the bare model id: pi looks it up under defaultProvider, and
+# when that lookup misses it takes the first provider it holds a credential for
+# (an ANTHROPIC_API_KEY in the shell, a /login), so the session leaves Reef.
 model_binding:
   openai:
     - target: models
@@ -79,7 +82,7 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
   responses:
     - target: models
@@ -94,7 +97,7 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
   anthropic:
     - target: models
@@ -109,5 +112,5 @@ model_binding:
                 maxTokens: "{max_output_tokens}"
     - target: primary
       data:
-        defaultModel: "reef/{model}"
+        defaultModel: "{model}"
         defaultProvider: reef
