@@ -4,6 +4,7 @@ Usage:
   reef serve --inference.upstream-url URL --inference.upstream-model MODEL  # connect a provider
   reef serve -c path/to/stack.yaml             # start a configured stack
   reef connect                               # link an existing runtime to the console
+  reef login chatgpt                         # sign in to a ChatGPT plan for --inference.upstream-api chatgpt
 
 `reef serve` starts local inference or a provider deployment without YAML, or reads
 a config's `services` list and starts its processes in dependency order.
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import sys
 
-_COMMANDS = {"serve", "connect"}
+_COMMANDS = {"serve", "connect", "login", "logout"}
 
 
 def _help_text():
@@ -27,6 +28,8 @@ usage: reef <command> [options]
 
   serve  Start inference, connect a provider, or run a configured stack
   connect  Connect an existing Reef runtime to the API platform
+  login chatgpt   Sign in to a ChatGPT plan for --inference.upstream-api chatgpt
+  logout chatgpt  Remove that sign-in
 
   -c CONFIG   Optional config file; omitted means configuration-free startup
   --version   Print the installed reef version
@@ -63,6 +66,12 @@ def main(argv=None):
         print(f"reef: unknown command '{cmd}'\n", file=sys.stderr)
         print(_help_text(), file=sys.stderr)
         sys.exit(2)
+
+    if cmd in ("login", "logout"):
+        from reef.inference.chatgpt_sign_in import main as _sign_in_main
+
+        _sign_in_main(cmd, rest)
+        return
 
     if cmd == "connect":
         from reef.service.connector import main as _connect_main

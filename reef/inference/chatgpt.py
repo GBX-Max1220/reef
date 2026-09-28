@@ -1,4 +1,4 @@
-"""The ChatGPT backend as Reef's upstream: a person's own ChatGPT plan, signed in through the Codex CLI.
+"""The ChatGPT backend as Reef's upstream: a person's own ChatGPT plan, signed in with ``reef login chatgpt``.
 
 Selected with ``inference.upstream_api: chatgpt``. The backend speaks a
 constrained Responses dialect at ``/codex/responses``: it takes only streamed,
@@ -8,19 +8,19 @@ as ``response.output_item.done`` events instead. Clients and Reef's own calls
 speak plain Responses to Reef; the handler adjusts each request for the
 backend and folds a reply a caller asked for whole.
 
-The sign-in is the one the Codex CLI keeps in ``$CODEX_HOME/auth.json``. Reef
-reads it for every call, so a refresh Codex made is picked up, and never
-writes or refreshes it.
+The sign-in is Reef's own, from ``reef login chatgpt``
+(:mod:`reef.inference.chatgpt_sign_in`). A call the backend refuses as signed
+out is sent once more on a renewed sign-in.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from reef.artifact.artifact import Artifact
+from reef.inference.chatgpt_sign_in import SIGN_IN_HINT, ChatGPTSignIn
 from reef.inference.http import HttpInferenceHandler, InferenceProxyRuntime, RequestHeadersFactory
 from reef.runtime.interfaces import InferenceHandler, InferenceStream, UpstreamStatusError
 
@@ -28,40 +28,14 @@ from reef.runtime.interfaces import InferenceHandler, InferenceStream, UpstreamS
 CHATGPT_UPSTREAM_API = "chatgpt"
 RESPONSES_PATH = "/v1/responses"
 BACKEND_PATH = "/codex/responses"
-SIGN_IN_HINT = "sign in with `codex login`"
 #: Request fields the backend refuses.
 DROPPED_FIELDS = ("max_output_tokens", "prompt_cache_retention", "prompt_cache_options", "service_tier")
-
-
-class CodexSignIn:
-    """The ChatGPT sign-in the Codex CLI keeps in ``<codex_home>/auth.json``."""
-
-    def __init__(self, codex_home: Path) -> None:
-        self.path = Path(codex_home) / "auth.json"
-
-    @classmethod
-    def from_environment(cls, environ: Mapping[str, str]) -> CodexSignIn:
-        """The sign-in under ``CODEX_HOME``, else ``~/.codex``, as Codex itself resolves it."""
-        return cls(Path(environ.get("CODEX_HOME") or Path.home() / ".codex"))
-
-    def credentials(self) -> tuple[str, str]:
-        """The access token and account id, read now; an error naming ``codex login`` when there are none."""
-        try:
-            document = json.loads(self.path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            raise UpstreamStatusError(f"no ChatGPT sign-in at {self.path}: {SIGN_IN_HINT}", status=401) from None
-        tokens = document.get("tokens") if isinstance(document, dict) else None
-        if not isinstance(tokens, dict) or not all(
-            isinstance(tokens.get(key), str) and tokens[key] for key in ("access_token", "account_id")
-        ):
-            raise UpstreamStatusError(f"{self.path} holds no ChatGPT sign-in: {SIGN_IN_HINT}", status=401)
-        return tokens["access_token"], tokens["account_id"]
 
 
 class ChatGPTRequestHeaders(RequestHeadersFactory):
     """The backend's sign-in headers, read from the sign-in for every call."""
 
-    def __init__(self, sign_in: CodexSignIn) -> None:
+    def __init__(self, sign_in: ChatGPTSignIn) -> None:
         self.sign_in = sign_in
 
     def headers(self, artifact: Artifact, path: str) -> Mapping[str, str]:
@@ -105,7 +79,7 @@ def backend_request_body(payload: Mapping[str, Any]) -> dict[str, Any]:
 class ChatGPTInferenceHandler(HttpInferenceHandler):
     """POST a caller's ``/v1/responses`` request to the backend, adjusted and signed in."""
 
-    def __init__(self, upstream_url: str, *, sign_in: CodexSignIn, timeout_s: float = 300.0) -> None:
+    def __init__(self, upstream_url: str, *, sign_in: ChatGPTSignIn, timeout_s: float = 300.0) -> None:
         super().__init__(
             upstream_url,
             request_headers=ChatGPTRequestHeaders(sign_in),
@@ -128,7 +102,13 @@ class ChatGPTInferenceHandler(HttpInferenceHandler):
     async def inference_stream(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> InferenceStream:
         """The backend's events as it sends them, typed ``text/event-stream``. The backend sends no content type,
         and Reef's stream route and Codex both read a stream as events only by that type."""
-        stream = await super().inference_stream(artifact, path, payload)
+        try:
+            stream = await super().inference_stream(artifact, path, payload)
+        except UpstreamStatusError as error:
+            if error.status != 401:
+                raise
+            self.sign_in.renew()
+            stream = await super().inference_stream(artifact, path, payload)
         headers = {name: value for name, value in stream.headers.items() if name.lower() != "content-type"}
         return InferenceStream(
             status=stream.status,
@@ -139,6 +119,15 @@ class ChatGPTInferenceHandler(HttpInferenceHandler):
 
     async def inference(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """A reply the caller asked for whole: the backend streams every reply, so it is folded here."""
+        try:
+            return await self.folded_reply(artifact, path, payload)
+        except UpstreamStatusError as error:
+            if error.status != 401:
+                raise
+            self.sign_in.renew()
+            return await self.folded_reply(artifact, path, payload)
+
+    async def folded_reply(self, artifact: Artifact, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         from aiohttp import ClientSession, ClientTimeout
 
         async with (
@@ -169,7 +158,7 @@ class ChatGPTProxyRuntime(InferenceProxyRuntime):
     """The proxy runtime on a person's ChatGPT plan; clients and Reef's own calls speak Responses to it."""
 
     def __init__(
-        self, *, model_path: str, base_url: str, sign_in: CodexSignIn, inference_timeout_s: float = 300.0
+        self, *, model_path: str, base_url: str, sign_in: ChatGPTSignIn, inference_timeout_s: float = 300.0
     ) -> None:
         super().__init__(
             model_path=model_path, base_url=base_url, api="responses", inference_timeout_s=inference_timeout_s
@@ -188,6 +177,5 @@ __all__ = [
     "ChatGPTInferenceHandler",
     "ChatGPTProxyRuntime",
     "ChatGPTRequestHeaders",
-    "CodexSignIn",
     "backend_request_body",
 ]

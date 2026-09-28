@@ -19,7 +19,8 @@ from typing import Any
 
 from reef.artifact.git_lfs import GitLFSRepositoryBackend
 from reef.dispatcher import Dispatcher
-from reef.inference.chatgpt import CHATGPT_UPSTREAM_API, ChatGPTProxyRuntime, CodexSignIn
+from reef.inference.chatgpt import CHATGPT_UPSTREAM_API, ChatGPTProxyRuntime
+from reef.inference.chatgpt_sign_in import ChatGPTSignIn
 from reef.inference.http import InferenceProxyRuntime
 from reef.observability import build_experiment_tracker, build_record_observer
 from reef.recipe import Recipe, WeightTrainingRecipe
@@ -104,7 +105,7 @@ def _upstream_runtime(settings: ServiceConfig) -> InferenceRuntime | None:
         return ChatGPTProxyRuntime(
             model_path=settings.upstream_model or "",
             base_url=settings.upstream_url,
-            sign_in=CodexSignIn.from_environment(os.environ),
+            sign_in=ChatGPTSignIn.default(),
             inference_timeout_s=settings.inference_timeout_s,
         )
     return InferenceProxyRuntime(

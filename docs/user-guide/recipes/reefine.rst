@@ -33,9 +33,15 @@ On a ChatGPT plan
 -----------------
 
 With a ChatGPT Plus or Pro plan and no API key, Reef can serve the plan
-itself. Sign in once with the Codex CLI (``codex login``, choosing ChatGPT),
-leave ``REEF_UPSTREAM_API_KEY`` unset, and start the profile on the
-``chatgpt`` upstream:
+itself. Sign in once:
+
+.. code:: bash
+
+   reef login chatgpt
+
+It prints a code; open ``https://auth.openai.com/codex/device`` in any
+browser, enter the code, and approve. Then leave ``REEF_UPSTREAM_API_KEY``
+unset and start the profile on the ``chatgpt`` upstream:
 
 .. code:: bash
 
@@ -49,10 +55,10 @@ then all run on the plan through Reef, and Reef records the sessions' calls as
 it does on a key. Add ``--recipe.config.evolution.adapter codex`` to refine a
 Codex harness.
 
-- Reef reads the sign-in from ``$CODEX_HOME/auth.json`` (``~/.codex/auth.json``
-  by default) for every call and never writes it. Codex renews it when you use
-  Codex; a call on an expired or missing sign-in fails with a message naming
-  ``codex login``.
+- Reef keeps the sign-in in ``~/.reef/credentials/chatgpt.json``, readable by
+  you only, and renews it before it expires. A call with no sign-in, or one
+  the renewal cannot fix, fails with a message naming ``reef login chatgpt``.
+  ``reef logout chatgpt`` removes it.
 - The model must be one the plan offers; a refused model fails with the
   backend's message.
 - The ``chatgpt`` upstream serves the Responses dialect, so it runs the pi and

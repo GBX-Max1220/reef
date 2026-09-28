@@ -109,7 +109,7 @@ class ServiceConfig:
         None, public_path=("inference", "upstream_model"), help="Model name requested from the upstream provider."
     )
     #: The provider's API dialect: ``openai`` (default), ``responses``, or ``anthropic``; or ``chatgpt``, a
-    #: person's ChatGPT plan through the Codex CLI's sign-in, which serves the ``responses`` dialect.
+    #: person's ChatGPT plan signed in with ``reef login chatgpt``, which serves the ``responses`` dialect.
     upstream_api: str = config_option(
         "openai", public_path=("inference", "upstream_api"), help="Provider API dialect, or chatgpt."
     )

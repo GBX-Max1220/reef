@@ -252,8 +252,7 @@ def assemble_provider_services(config: dict[str, Any]) -> None:
     if settings.upstream_api == CHATGPT_UPSTREAM_API:
         if settings.upstream_api_key:
             raise DeployConfigError(
-                "--inference.upstream-api chatgpt signs in with the Codex CLI's ChatGPT sign-in (codex login);"
-                " drop --inference.upstream-api-key"
+                "--inference.upstream-api chatgpt signs in with `reef login chatgpt`; drop --inference.upstream-api-key"
             )
         try:
             loopback = settings.host == "localhost" or ipaddress.ip_address(settings.host).is_loopback

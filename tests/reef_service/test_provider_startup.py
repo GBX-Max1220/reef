@@ -199,7 +199,7 @@ def test_invalid_readiness_commands_are_rejected(ready):
         (
             ["--model", "gpt-5.5", "--upstream-url", "https://chatgpt.com/backend-api", "--upstream-api", "chatgpt"]
             + ["--upstream-api-key", "provider-secret"],
-            "Codex CLI's ChatGPT sign-in",
+            "reef login chatgpt",
         ),
         (
             ["--model", "gpt-5.5", "--upstream-url", "https://chatgpt.com/backend-api", "--upstream-api", "chatgpt"]

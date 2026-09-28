@@ -613,7 +613,7 @@ shown above; the repository examples all use version 2.
    reef.upstream_url | the OpenAI-compatible provider, with no ``/v1`` suffix
    reef.upstream_api_key | its credential. Reef is the only party that sees it.
    reef.upstream_model | the model to request upstream
-   reef.upstream_api | openai | the provider dialect: ``openai`` for Chat Completions, ``responses`` for OpenAI Responses, or ``anthropic`` for an Anthropic-style endpoint; or ``chatgpt`` for a person's own ChatGPT plan, signed in through the Codex CLI, which serves the ``responses`` dialect (see "On a ChatGPT plan" in the Reefine guide)
+   reef.upstream_api | openai | the provider dialect: ``openai`` for Chat Completions, ``responses`` for OpenAI Responses, or ``anthropic`` for an Anthropic-style endpoint; or ``chatgpt`` for a person's own ChatGPT plan, signed in with ``reef login chatgpt``, which serves the ``responses`` dialect (see "On a ChatGPT plan" in the Reefine guide)
    reef.inference_url | the address the training backend reports | the local engine; set only to front the engines with something else
    reef.inference_timeout_s | 300.0 | per-request timeout
    reef.allow_implicit_scenario_creation | true | when false, an unknown scenario is HTTP 404
