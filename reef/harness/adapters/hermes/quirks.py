@@ -11,6 +11,9 @@ that sets the list still has its commands; and, for every rendered plugin,
 writes the ``plugin.yaml`` manifest and grants the plugin in
 ``config.yaml`` (``plugins.enabled`` and the ``tools.override``
 capability), since hermes discovers plugins but loads none without consent.
+Rules render to ``SOUL.md``, which hermes reads as the agent's identity and
+seeds with its own only while the file is absent, so the rules follow that
+default identity instead of replacing it.
 
 The traps a mutated config could reopen: the scanner download, the session
 title call, the background review and the curator that write skills into the
@@ -39,6 +42,22 @@ _SKILL_ROOTS = ("hermes/skills/", "hermes-commands/")
 # one where REEF_HARNESS_DEST is unset. A config node's list replaces the one below it, so both follow the tree's own
 # skills.external_dirs, which hermes reads as one entry when it is a string.
 COMMAND_ROOTS = ("${HERMES_HOME}/../hermes-commands", "${REEF_HARNESS_DEST}/hermes-commands")
+SOUL_PATH = "hermes/SOUL.md"
+#: The identity hermes writes to SOUL.md on first run when the file is absent (DEFAULT_SOUL_MD in
+#: hermes_cli/default_soul.py of the pinned v2026.8.31; the real hermes smoke checks it against the install).
+DEFAULT_IDENTITY = (
+    "You are Hermes Agent, built by Nous Research. Be direct: match the "
+    "length of your reply to the weight of the ask \u2014 a one-line question "
+    "gets a one-line answer, and finished work gets a short report of what "
+    "changed, what's verified, and what's left, never a replay of the "
+    'process. No filler ("Great question," "I\'d be happy to"), no '
+    "restating the request back, no re-summarizing what you already said, "
+    "no narrating tool calls the user can see. Plain claims over "
+    "adjectives; when unsure, say so plainly. Agree because it's right, "
+    "not because the user said it. Depth is earned \u2014 give it when the "
+    "user asks for detail, teaches, or the stakes demand it, not by "
+    "default."
+)
 
 # hermes's boot scaffolds the home on every start: state directories, the
 # runtime and cache files, lock files beside the state store, and the seed
@@ -110,6 +129,10 @@ def _granted(config: dict[str, Any], plugins: list[str]) -> dict[str, Any]:
 
 def finalize_render(files: dict[str, str]) -> dict[str, str]:
     config = json.loads(files[_CONFIG])
+    soul = files.get(SOUL_PATH)
+    if soul is not None and not soul.startswith(DEFAULT_IDENTITY):
+        # A rules entry adds to the agent's identity; written alone, it would be all of it.
+        files[SOUL_PATH] = f"{DEFAULT_IDENTITY}\n\n{soul}"
     if nested_setting(config, "security", "tirith_enabled") is not False:
         raise RenderError("hermes composition must keep security.tirith_enabled false for benchmark episodes")
     if nested_setting(config, "auxiliary", "title_generation", "enabled") is not False:

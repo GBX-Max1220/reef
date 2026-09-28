@@ -289,3 +289,18 @@ def test_real_hermes_reads_the_curator_off(tmp_path) -> None:
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout.splitlines()[-1]) == [False, False]
     assert not (home / "skills" / ".curator_state").exists()
+
+
+def test_the_identity_the_rules_follow_is_the_one_the_real_hermes_seeds() -> None:
+    """The hermes quirks put hermes's own first run identity ahead of the rules; it must stay the text the pinned
+    hermes writes, read here with the interpreter the real binary runs on."""
+    from reef.harness.adapters.hermes.quirks import DEFAULT_IDENTITY
+
+    interpreter = Path(REAL_HERMES).read_text(encoding="utf-8").splitlines()[0].removeprefix("#!").strip()
+    seeded = subprocess.run(
+        [interpreter, "-c", "from hermes_cli.default_soul import DEFAULT_SOUL_MD; print(DEFAULT_SOUL_MD, end='')"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert seeded == DEFAULT_IDENTITY
