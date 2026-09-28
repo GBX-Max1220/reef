@@ -201,7 +201,7 @@ def test_a_trial_without_a_reward_names_the_mount_problem_only_for_local_docker(
 
         async def run(self, task: str, agent: dict, **options: object) -> SimpleNamespace:
             (self.trials_dir / f"{task}__a1" / "verifier").mkdir(parents=True)
-            return SimpleNamespace(rewards=None, tags={"error": missing})
+            return SimpleNamespace(rewards=None, tags={"error": missing}, uri=None)
 
     monkeypatch.setitem(sys.modules, "reef_eval", SimpleNamespace(Lab=Lab))
     binding = ModelBinding(base_url="http://127.0.0.1:9", model="openai/gpt-4o", api_key="k")
