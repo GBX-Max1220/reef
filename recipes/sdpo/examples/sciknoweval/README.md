@@ -109,7 +109,7 @@ and the training forward), so `max-tokens-per-gpu` and `mem-fraction-static` in
 
 ## Results
 
-![Test avg@8 against optimizer steps, with the training grid's accuracy behind it](results/2026-09-28-chemistry-qwen3-8b/learning_curve.png)
+![Test avg@8 against optimizer steps](results/2026-09-28-chemistry-qwen3-8b/learning_curve.png)
 
 One run on Qwen3-8B with seed 42 for 100 steps. The actor and the rollout
 engines ran on separate GPUs and the test split was scored avg@8 every five
