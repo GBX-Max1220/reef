@@ -109,8 +109,16 @@ and the training forward), so `max-tokens-per-gpu` and `mem-fraction-static` in
 
 ## Results
 
-None recorded yet. A run is complete when it carries the raw per-evaluation
-values, the seed, the model revision and the resolved configuration, following
-[Reef #22](https://github.com/Human-Agent-Society/reef/issues/22). The
-acceptance criterion from the roadmap is SDPO above GRPO at matched generations,
-reaching GRPO's final accuracy in fewer, as the paper reports.
+![Test avg@8 against optimizer steps, with the training grid's accuracy behind it](results/2026-09-28-chemistry-qwen3-8b/learning_curve.png)
+
+One run on Qwen3-8B with seed 42 for 100 steps. The actor and the rollout
+engines ran on separate GPUs and the test split was scored avg@8 every five
+steps.
+
+Test accuracy goes from 41.2% to 66.2% in 15 steps and to 74.4% at step 75.
+It stays between 72% and 74% from step 40 on and ends at 71.7%.
+
+The rollouts stay diverse and the answer format holds through the run. A
+question seen a second time is answered as well as the rest of the grid, so
+the gain is not memorization. Responses shorten from 471 to 216 tokens on the
+test split, and the model answers A less often than the split does.
