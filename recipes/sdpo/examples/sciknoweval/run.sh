@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 export SDPO_RUN_DIR="${SDPO_RUN_DIR:-$PWD/work}"
 export SDPO_MODEL_PATH="${SDPO_MODEL_PATH:-$HOME/models/Qwen3-8B}"
-export REEF_PORT="${REEF_PORT:-28902}"
+export REEF_PORT=28902  # serve.yaml's reef.port
 export REEF_SCENARIO="${REEF_SCENARIO:-sdpo-chemistry}"
 
 # Prerequisites

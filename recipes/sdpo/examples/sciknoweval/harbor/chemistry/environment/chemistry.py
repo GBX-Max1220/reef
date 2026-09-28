@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -115,37 +116,41 @@ def sample_group(client: ReefClient, row: dict[str, Any], rollouts: int) -> list
         return list(pool.map(lambda _: sample(client, row), range(rollouts)))
 
 
-def score_at_n(client: ReefClient, row: dict[str, Any], n: int) -> float:
-    """The question's avg@n: ``n`` unrecorded samples at the evaluation decoding, the fraction correct."""
+def evaluation_sample(client: ReefClient, row: dict[str, Any]) -> bool:
+    """One unrecorded sample of a question at the evaluation decoding, scored.
+
+    Reef's chat capture serves one choice per request, so avg@n is n of these.
+    """
     response = client.inference(
         SCENARIO,
         "/v1/chat/completions",
         {
             "model": MODEL,
             "messages": messages(row),
-            "n": n,
             "temperature": EVAL_TEMPERATURE,
             "top_p": EVAL_TOP_P,
             "max_tokens": MAX_RESPONSE_TOKENS,
             "chat_template_kwargs": {"enable_thinking": False},
         },
     )
-    texts = [choice["message"]["content"] for choice in response["choices"]]
-    return sum(1 for text in texts if is_correct(text, row["answer"])) / len(texts)
+    return is_correct(response["choices"][0]["message"]["content"], row["answer"])
 
 
 def evaluate(client: ReefClient, rows: Sequence[dict[str, Any]], *, n: int, concurrency: int) -> dict[str, Any]:
-    """avg@n over the test split: each question sampled ``n`` times, then averaged over questions.
+    """avg@n over the test split: every question sampled ``n`` times, the fraction correct over all samples.
 
-    The samples are not recorded, so an evaluation never becomes training data.
+    The samples are not recorded, so an evaluation never becomes training
+    data. The ``n`` samples of every question share one pool of
+    ``concurrency`` requests.
     """
     started = time.time()
+    samples = [row for row in rows for _ in range(n)]
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        per_question = list(pool.map(lambda row: score_at_n(client, row, n), rows))
+        correct = list(pool.map(lambda row: evaluation_sample(client, row), samples))
     return {
-        "avg_at_n": sum(per_question) / len(per_question),
+        "avg_at_n": sum(correct) / len(correct),
         "n": n,
-        "questions": len(per_question),
+        "questions": len(rows),
         "elapsed_s": round(time.time() - started, 1),
     }
 
@@ -163,8 +168,8 @@ def training_release_count() -> int | None:
             return 0  # the scenario does not exist yet: the first request creates it
         return SERVICE_GONE  # answered and rejected: not our deployment
     except urllib.error.URLError as error:
-        if isinstance(getattr(error, "reason", None), ConnectionRefusedError):
-            return SERVICE_GONE
+        if isinstance(error.reason, (ConnectionRefusedError, socket.gaierror)):
+            return SERVICE_GONE  # refused, or the container cannot name the host: waiting cannot help
         return None  # stalled behind a train step; try again
     except TimeoutError:
         return None

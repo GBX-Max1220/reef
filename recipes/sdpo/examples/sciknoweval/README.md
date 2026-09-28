@@ -22,6 +22,7 @@ harbor/chemistry/
   task.toml                     timeouts and resource limits
   environment/
     Dockerfile                  clones the reference at its pin, installs reef-client
+    docker-compose.yaml         names the host for the runner's container
     chemistry.py                the split, the prompts, the reference's scorer, the Reef calls
     stage.py                    the runner: samples each grid, reports it, waits, evaluates
   tests/grade.py                the verifier: the last avg@16 from the runner's curve
@@ -82,11 +83,16 @@ episode in an ephemeral `uv` environment. State goes to `$SDPO_RUN_DIR`
 (default `./work`): the trial's rows, the runner's log, the curve, and the Reef
 log all land there.
 
+A run is named by its `REEF_SCENARIO` and its settings. reef-eval skips a
+run whose row is already stored and a scenario keeps the weights it trained,
+so give each run its own `REEF_SCENARIO`.
+
 The runner's settings come from the host environment and the harness forwards
 them into the container:
 
 | Variable | Default | Meaning |
 | --- | ---: | --- |
+| `REEF_SCENARIO` | `sdpo-chemistry` | the Reef scenario the run trains; one per run |
 | `SDPO_STEPS` | 0 | a ceiling on the steps; 0 runs the whole schedule |
 | `SDPO_TRAINING_HOURS` | 0 | stop after the first evaluation past this training time; 0 disables the budget |
 | `SDPO_GROUPS_PER_STEP` | 32 | questions per grid; MUST equal `serve.yaml` |
@@ -95,11 +101,11 @@ them into the container:
 | `SDPO_EVAL_SAMPLES` | 16 | samples per test question, the paper's avg@16 |
 | `SDPO_SEED` | 42 | fixes the question order |
 
-Start with `SDPO_STEPS=2` to check the stack end to end before committing to a
-budget. Four H100s at this window are tight: a step runs three forwards over
-the batch (the student's top-K selection, the teacher, and the training
-forward), so `max-tokens-per-gpu` and `mem-fraction-static` in `serve.yaml` are
-the first knobs to tune.
+Start with `SDPO_STEPS=2` in a scenario of its own to check the stack end to
+end before committing to a budget. Four H100s at this window are tight: a step
+runs three forwards over the batch (the student's top-K selection, the teacher,
+and the training forward), so `max-tokens-per-gpu` and `mem-fraction-static` in
+`serve.yaml` are the first knobs to tune.
 
 ## Results
 

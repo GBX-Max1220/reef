@@ -19,8 +19,8 @@
 
 schema-version: 2
 reef:
-  host: 127.0.0.1
-  port: 28902
+  host: 0.0.0.0                        # the task container reaches Reef as host.docker.internal
+  port: 28902                          # run.sh's REEF_PORT
   token: ${REEF_TOKEN}
   ready-timeout: 3600
   run-dir: ${SDPO_RUN_DIR}/run
@@ -93,7 +93,6 @@ training:
     swiglu: true
     disable-bias-linear: true
     qk-layernorm: true
-    untie-embeddings-and-output-weights: true
     normalization: RMSNorm
     # The student selects the top-K support in a forward before the step, so
     # the training forward must put the same distribution at those ids.

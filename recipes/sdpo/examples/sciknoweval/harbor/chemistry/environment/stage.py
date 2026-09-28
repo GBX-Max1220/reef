@@ -38,7 +38,7 @@ EPOCHS = int(os.environ.get("SDPO_EPOCHS", "30"))  # the reference's total_epoch
 SEED = int(os.environ.get("SDPO_SEED", "42"))
 EVAL_EVERY = int(os.environ.get("SDPO_EVAL_EVERY", "5"))  # the reference's test_freq
 EVAL_SAMPLES = int(os.environ.get("SDPO_EVAL_SAMPLES", "16"))  # avg@16, the paper's metric
-EVAL_CONCURRENCY = int(os.environ.get("SDPO_EVAL_CONCURRENCY", "32"))
+EVAL_CONCURRENCY = int(os.environ.get("SDPO_EVAL_CONCURRENCY", "64"))  # requests in flight; each is one sample
 #: A ceiling on the steps to run (0 runs the whole schedule).
 STEPS = int(os.environ.get("SDPO_STEPS", "0"))
 #: Stop after the first evaluation past this much pure training time (0 disables the budget).

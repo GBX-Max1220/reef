@@ -11,7 +11,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -35,8 +35,6 @@ def chemistry(tmp_path_factory: pytest.TempPathFactory):
     data = tmp_path_factory.mktemp("chemistry")
     for split, rows in (("train", [ROW, {**ROW, "idx": 2, "answer": "C"}]), ("test", [ROW])):
         (data / f"{split}.json").write_text("\n".join(json.dumps(row) for row in rows) + "\n")
-    # The module imports reef_client at module scope; the tests never call it.
-    sys.modules.setdefault("reef_client", ModuleType("reef_client")).ReefClient = object
     path = EXAMPLE / "harbor" / "chemistry" / "environment" / "chemistry.py"
     spec = importlib.util.spec_from_file_location("sdpo_chemistry", path)
     module = importlib.util.module_from_spec(spec)
@@ -93,14 +91,15 @@ def test_the_question_schedule_shuffles_each_epoch_and_drops_only_the_tail(chemi
 
 
 @pytest.mark.unit
-def test_evaluation_is_unrecorded_and_averages_over_questions(chemistry, monkeypatch) -> None:
-    """avg@n asks for n choices in one unrecorded request and averages the per-question fractions."""
+def test_evaluation_is_unrecorded_and_asks_one_choice_per_request(chemistry) -> None:
+    """avg@n asks n unrecorded single-choice requests per question and scores the fraction correct."""
     asked = []
+    letters = {ROW["prompt"]: iter(["B", "B", "A", "D"]), "Another question?": iter(["A"] * 4)}
 
     def inference(scenario, path, payload):
         asked.append(payload)
-        letters = ["B", "B", "A", "D"] if payload["messages"][1]["content"] == ROW["prompt"] else ["A"] * 4
-        return {"choices": [{"message": {"content": f"<answer>\n{letter}\n</answer>"}} for letter in letters]}
+        letter = next(letters[payload["messages"][1]["content"]])
+        return {"choices": [{"message": {"content": f"<answer>\n{letter}\n</answer>"}}]}
 
     client = SimpleNamespace(inference=inference, inference_with_record=None)
     other = {**ROW, "prompt": "Another question?", "answer": "A"}
@@ -109,5 +108,7 @@ def test_evaluation_is_unrecorded_and_averages_over_questions(chemistry, monkeyp
     # The first question scores 2 of 4, the second 4 of 4.
     assert result["avg_at_n"] == pytest.approx(0.75)
     assert (result["n"], result["questions"]) == (4, 2)
-    assert all(payload["n"] == 4 for payload in asked)
+    # Reef's chat capture serves one choice per request, so no request asks for more.
+    assert len(asked) == 8
+    assert all("n" not in payload for payload in asked)
     assert all(payload["temperature"] == 0.6 and payload["top_p"] == 0.95 for payload in asked)
