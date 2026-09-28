@@ -1,17 +1,20 @@
 """The bridge-side check of the sampler's recorded top-K, vectorized with torch.
 
-``ScoreCenteringAlgorithm.prepare_rollout`` imports this module on the
-bridge, which tensorizes the payload next anyway, so the spec module stays
-importable without torch. The check costs a few tensor operations per sample
-instead of Python work per recorded entry, which grows with
-``positions * top_k``.
+The bridge imports this module when score centering is on, just before it
+tensorizes the payload, so the driver-side modules stay importable without
+torch. The check costs a few tensor operations per sample instead of Python
+work per recorded entry, which grows with ``positions * top_k``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import torch
+
+from reef.train.algos.score_centering import ScoreCenteringSettings
+from reef.train.slime_backend.score_centering import ROLLOUT_KEYS, TOPK_INDICES_KEY, TOPK_LOG_PROBS_KEY
 
 #: Log-prob given to the placeholder head of an untrained position; its
 #: probability underflows to exactly zero in float32.
@@ -41,18 +44,18 @@ def sampler_head(
     *,
     response_tokens: Sequence[int],
     loss_mask: Sequence[int],
-    rollout_log_probs: Sequence[float],
+    rollout_log_probs: Sequence[float] | None,
     top_k: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Validate one sample's recorded top-K and return its ``[R, top_k]`` head ids and log-probs.
 
     Every trained position must carry at least ``top_k`` distinct
     non-negative ids with finite log-probs whose probabilities sum to at most
-    one; the first ``top_k`` are kept. When the sampled token is in the head
-    its recorded log-prob must equal the sampled log-prob, which catches a
-    head shifted against the response. Untrained positions (the masked
-    context multi-turn assembly inserts) get a placeholder head of
-    probability zero.
+    one; the first ``top_k`` are kept. When the sample carries its rollout
+    log-probs and the sampled token is in the head, the head's log-prob for
+    it must equal the sampled log-prob, which catches a head shifted against
+    the response. Untrained positions (the masked context multi-turn
+    assembly inserts) get a placeholder head of probability zero.
     """
     response_length = len(loss_mask)
     index_rows = recorded_rows(label, "topk_indices", indices, response_length, top_k)
@@ -86,8 +89,6 @@ def sampler_head(
         values = torch.tensor(trained_log_probs, dtype=torch.float64)
     except (TypeError, ValueError, RuntimeError) as error:
         raise ValueError(f"{label} top-k rows must hold numbers: {error}") from error
-    sampled = torch.tensor([response_tokens[position] for position in trained])
-    sampled_log_probs = torch.tensor([rollout_log_probs[position] for position in trained], dtype=torch.float64)
 
     def _first_position(bad_rows: torch.Tensor) -> int:
         return trained[int(bad_rows.nonzero()[0, 0])]
@@ -109,20 +110,58 @@ def sampler_head(
     overfull = values.exp().sum(-1) > 1.0 + PROBABILITY_TOLERANCE
     if bool(overfull.any()):
         raise ValueError(f"{label} position {_first_position(overfull)} top-k probabilities sum to more than one")
-    in_head = ids == sampled[:, None]
-    recorded = (values * in_head).sum(-1)
-    misaligned = in_head.any(-1) & ((recorded - sampled_log_probs).abs() > PROBABILITY_TOLERANCE)
-    if bool(misaligned.any()):
-        row = int(misaligned.nonzero()[0, 0])
-        raise ValueError(
-            f"{label} position {trained[row]} records the sampled token {int(sampled[row])} at log-prob "
-            f"{float(recorded[row])} but samples it at {float(sampled_log_probs[row])}: the top-k rows are not "
-            "aligned with the response"
-        )
+    if rollout_log_probs:
+        sampled = torch.tensor([response_tokens[position] for position in trained])
+        sampled_log_probs = torch.tensor([rollout_log_probs[position] for position in trained], dtype=torch.float64)
+        in_head = ids == sampled[:, None]
+        recorded = (values * in_head).sum(-1)
+        misaligned = in_head.any(-1) & ((recorded - sampled_log_probs).abs() > PROBABILITY_TOLERANCE)
+        if bool(misaligned.any()):
+            row = int(misaligned.nonzero()[0, 0])
+            raise ValueError(
+                f"{label} position {trained[row]} records the sampled token {int(sampled[row])} at log-prob "
+                f"{float(recorded[row])} but samples it at {float(sampled_log_probs[row])}: the top-k rows are not "
+                "aligned with the response"
+            )
     rows = torch.tensor(trained)
     head_ids[rows] = ids
     head_log_probs[rows] = values.float()
     return head_ids, head_log_probs
 
 
-__all__ = ["PADDING_LOG_PROB", "PROBABILITY_TOLERANCE", "recorded_rows", "sampler_head"]
+def attach_sampler_heads(
+    rollout_data: dict[str, Any], payload: Mapping[str, Any], settings: ScoreCenteringSettings
+) -> None:
+    """Check the payload's top-K columns and put each sample's ``[R, top_k]`` head into ``rollout_data``."""
+    sample_count = len(rollout_data["tokens"])
+    for key in ROLLOUT_KEYS:
+        column = payload.get(key)
+        if not isinstance(column, Sequence) or isinstance(column, str | bytes) or len(column) != sample_count:
+            raise ValueError(f"score centering needs {key} with one entry per sample in the training payload")
+    rollout_log_probs = rollout_data.get("rollout_log_probs") or [None] * sample_count
+    heads = [
+        sampler_head(
+            f"score centering sample {index}",
+            indices,
+            log_probs,
+            response_tokens=tokens[len(tokens) - len(loss_mask) :],
+            loss_mask=loss_mask,
+            rollout_log_probs=sampled_log_probs,
+            top_k=settings.top_k,
+        )
+        for index, (indices, log_probs, tokens, loss_mask, sampled_log_probs) in enumerate(
+            zip(
+                payload[TOPK_INDICES_KEY],
+                payload[TOPK_LOG_PROBS_KEY],
+                rollout_data["tokens"],
+                rollout_data["loss_masks"],
+                rollout_log_probs,
+                strict=True,
+            )
+        )
+    ]
+    rollout_data[TOPK_INDICES_KEY] = [ids for ids, _ in heads]
+    rollout_data[TOPK_LOG_PROBS_KEY] = [values for _, values in heads]
+
+
+__all__ = ["PADDING_LOG_PROB", "PROBABILITY_TOLERANCE", "attach_sampler_heads", "recorded_rows", "sampler_head"]

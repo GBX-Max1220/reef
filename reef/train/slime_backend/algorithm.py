@@ -85,6 +85,7 @@ from typing import Any, Literal
 
 from reef.core.batches import TrajectoryItem
 from reef.core.trajectories import source_record_id, trajectory_reward
+from reef.train.algos.score_centering import PolicyGradientWeight
 
 
 @dataclass(frozen=True)
@@ -192,6 +193,7 @@ class SlimeAlgorithm(ABC):
         ``prepare_rollout``           — pre-training work on the bridge actor.
         ``train``                     — critic→actor orchestration.
         ``rollout_metrics``           — telemetry after training.
+        ``policy_gradient_weight``    — the loss's per-token weight, for score centering.
     """
 
     # --- required class attributes (set in subclass) ---
@@ -256,6 +258,18 @@ class SlimeAlgorithm(ABC):
     def parse_specific_options(self, arguments: Sequence[str]) -> tuple[Any | None, list[str]]:
         """Parse family-specific CLI flags. Default: no-op."""
         return None, list(arguments)
+
+    def policy_gradient_weight(self, args: Namespace) -> PolicyGradientWeight | None:
+        """The weight ``f(p / q)`` this family's loss puts on the sampled token's score.
+
+        A family whose policy-gradient loss has the form
+        ``-A_t * sg[f(p_t / q_t)] * log p_t``, with ``q`` the rollout engine's
+        probability, returns its ``f`` so ``--score-centering`` can add the
+        matching correction term to that loss. Default ``None``: the loss has
+        another form (a clipped surrogate against a recomputed old policy, a
+        distillation), and score centering is refused.
+        """
+        return None
 
     def configure_backend_args(self, args: Namespace) -> None:
         """Project family-specific settings onto the parsed backend args.

@@ -57,8 +57,6 @@ objective; the driver checks it at start and refuses a mismatch.
 +---------------------+-----------------------------+----------------------------+
 | ``sdft``            | ``custom_loss``             | ``--use-rollout-logprobs`` |
 +---------------------+-----------------------------+----------------------------+
-| ``score_centering`` | ``custom_loss``             | ``--use-rollout-logprobs`` |
-+---------------------+-----------------------------+----------------------------+
 
 The spec
 --------
@@ -94,6 +92,8 @@ rest has defaults. The overrides, in the order the pipeline reaches them:
 - ``bind``: a per-run instance carrying state such as a critic schedule.
 - ``train``: critic and actor orchestration; the default is one actor step.
 - ``rollout_metrics``: rollout version and timing metrics after the step.
+- ``policy_gradient_weight``: the weight the family's loss puts on the
+  sampled token's score, which score centering needs (below).
 
 Two loss lanes
 --------------
@@ -201,31 +201,53 @@ gathers from it.
 Score centering
 ---------------
 
-``score_centering`` is a method-neutral family Reef ships in
-``reef/train/slime_backend/score_centering/``. It implements the correction
-from `Score Centering Stabilizes Off-policy Reinforcement Learning
-<https://arxiv.org/abs/2609.20807>`_ (Appendix A, equations 9-14) for an
-unclipped policy gradient on the recipe's advantages. It is off unless a
-recipe selects it. Recipes enable it by setting the objective's
-``loss_family = "score_centering"`` and supplying one advantage per sample
-in ``StepSignal``. The recipe keeps rewards and advantage construction. A
-recipe that wants its own flag prefix subclasses ``ScoreCenteringAlgorithm``,
-and its ``objective.py`` forwards ``<name>_loss`` to
-``score_centering.objective.score_centering_loss``.
+Score centering is a correction Reef adds to a family's own policy-gradient
+loss; it is not a loss family. It implements `Score Centering Stabilizes
+Off-policy Reinforcement Learning <https://arxiv.org/abs/2609.20807>`_
+(Appendix A, equations 9-14). When the rollout engine's distribution ``q``
+differs from the trainer's ``p`` (a quantized engine, stale weights), a
+policy gradient drifts toward ``q``; score centering subtracts that drift.
+It is off unless ``--score-centering`` is set, and only a family that
+declares the weight its loss puts on the sampled token's score accepts it.
+SAO declares one.
 
-Enabling it takes an objective that names the family and a serving and
-training configuration that records the sampler's top-K:
+A family declares its weight with ``policy_gradient_weight``. Its loss must
+have the form ``-A_t * sg[f(p_t / q_t)] * log p_t``, with ``q`` the rollout
+engine's probability:
 
 .. code:: python
 
-   @register_objective
-   class MyObjective(TrainingObjective):
-       name = "my_method"
-       loss_family = "score_centering"
+   def policy_gradient_weight(self, args):
+       # SAO: the ratio masked to its trust region.
+       return PolicyGradientWeight("masked", lower=1 - args.eps_clip, upper=1 + args.eps_clip_high)
 
-       def prepare(self, batch, state):
-           advantages = ...  # a tuple with one float per sample, as for any policy family
-           return StepSignal("train", {"steps": next_steps(state)}, {}, advantages)
+``PolicyGradientWeight`` (``reef.train.algos.score_centering``) is ``none``
+(``f = 1``, plain off-policy REINFORCE), ``truncated`` (``min(r, upper)``) or
+``masked`` (``r`` strictly inside ``(lower, upper)``, else 0). The default,
+``None``, refuses score centering: a clipped surrogate against a recomputed
+old policy or a distillation loss has no such weight. For unclipped
+importance sampling (``f = r``) the term below is identically zero, since
+that estimator has no drift.
+
+Reef then adds this term to the family's loss at every trained response
+position:
+
+.. code:: text
+
+   A * sum_{v in H} sg[q_v * f(p_v / q_v) - alpha * p_v] * log p_v
+
+   rho   = max(1 - q(H), eps) / max(1 - p(H), eps)
+   alpha = rho * f(1 / rho)
+
+``H`` is the sampler's recorded top-K ids, the sampler's tail is
+approximated as ``rho * p``, and ``sg`` stops the gradient. The term uses the
+loss's own advantages and is reduced with the same per-sample mean, so the
+loss's weighted score ends up centered under the sampler, tail included. It
+is zero when ``q = p``. It is added inside Slime's policy loss for a stock or
+pg-primitive family, and around the family's custom loss otherwise.
+
+To enable it, record the sampler's top-K and set the flags in
+``training.options``:
 
 .. code:: yaml
 
@@ -235,87 +257,61 @@ training configuration that records the sampler's top-K:
        capture_topk: 128        # at least score-centering-top-k
    training:
      options:
-       loss-type: custom_loss
-       use-rollout-logprobs: true
+       score-centering: true
        score-centering-top-k: 128
-       score-centering-importance-weight: tis
 
 Each step then reports the ``score_centering_*`` metrics listed below.
 
-The per-token loss at every trained response position is
-
-.. code:: text
-
-   -A * ( sg[w_y] log p_y  -  sum_{v in H} sg[q_v w_v - alpha p_v] log p_v )
-
-   rho   = max(1 - q(H), eps) / max(1 - p(H), eps)
-   alpha = rho * f(1 / rho)
-   w_v   = f(p_v / q_v)
-
-``p`` is the trainer's distribution, ``q`` is the sampler's, ``H`` is the
-sampler's recorded top-K ids, ``y`` is the sampled token, and ``sg`` stops
-the gradient. The sampler's tail is approximated as ``rho * p``. Slime's
-per-sample mean over trained tokens reduces the loss. ``f`` is the
-importance weight: ``none`` (1), ``tis`` (``min(r, tis_cap)``) or ``mis``
-(``r`` inside ``[mis_lower, mis_upper]``, otherwise 0). The weighted score
-is centered, including the tail term. The sampled token's weight uses the
-token's recorded sampler log-prob (``rollout_log_probs``), including when
-the token is outside the head.
-
-Settings (``reef.train.algos.score_centering.ScoreCenteringSettings``)
-are set with ``--score-centering-*`` flags in ``training.options``:
-
-+-----------------------+-----------+-------------------------------------------+
-| Flag                  | Default   | Meaning                                   |
-+=======================+===========+===========================================+
-| ``top-k``             | 128       | sampler log-probs read per position       |
-+-----------------------+-----------+-------------------------------------------+
-| ``importance-weight`` | ``none``  | ``none``, ``tis`` or ``mis``              |
-+-----------------------+-----------+-------------------------------------------+
-| ``tis-cap``           | 2.0       | TIS truncation                            |
-+-----------------------+-----------+-------------------------------------------+
-| ``mis-lower``,        | 0.5, 5.0  | MIS band                                  |
-| ``mis-upper``         |           |                                           |
-+-----------------------+-----------+-------------------------------------------+
-| ``min-tail-mass``     | 1e-6      | floor applied to both tail masses         |
-+-----------------------+-----------+-------------------------------------------+
++-----------------------------------+---------+-------------------------------------+
+| Flag                              | Default | Meaning                             |
++===================================+=========+=====================================+
+| ``score-centering``               | off     | add the term to the family's loss   |
++-----------------------------------+---------+-------------------------------------+
+| ``score-centering-top-k``         | 128     | sampler log-probs read per position |
++-----------------------------------+---------+-------------------------------------+
+| ``score-centering-min-tail-mass`` | 1e-6    | floor applied to both tail masses   |
++-----------------------------------+---------+-------------------------------------+
 
 Inputs and requirements:
 
 - Records need the sampler's top-K. Serve through a token-native handler
   (SGLang or vLLM) with ``inference.handler-config.capture_topk`` at least
-  ``top-k``. The recorded log-probs are the same distribution as
-  ``rollout_log_probs`` and the trainer's: after temperature and before the
+  ``score-centering-top-k``. The recorded log-probs are the same distribution
+  as ``rollout_log_probs`` and the trainer's: after temperature and before the
   top-k, top-p and min-p filters (see the configuration reference). With
   those filters on, the correction centers against the unfiltered
   distribution.
-- The wire row is the policy row plus ``topk_indices`` and
-  ``topk_log_probs``, one row per response token. Multi-turn assembly keeps
-  those rows aligned with the joined response, gives inserted context an
-  empty row, and drops top-K for the whole sample when a turn has none.
+- When the flag is on, the bridge adds each wire row's recorded top-K to the
+  payload as ``sampler_topk_indices`` and ``sampler_topk_log_probs``; the
+  family's wire row is unchanged. Multi-turn assembly keeps the recorded rows
+  aligned with the joined response, gives inserted context an empty row, and
+  drops top-K for the whole sample when a turn has none.
 - Before each step, the bridge keeps the first ``top-k`` entries of every
   trained position. It refuses a sample with missing or short rows,
-  duplicate or negative ids, non-finite log-probs, a head mass above one, or
-  a head whose entry for the sampled token disagrees with
-  ``rollout_log_probs``. That last check catches rows shifted against the
-  response. The worker also refuses ids outside the vocabulary. The check
-  runs in torch (``score_centering/heads.py``); 64 samples of 1,024 tokens
-  at ``top-k`` 128 take under a second on a CPU.
+  duplicate or negative ids, non-finite log-probs, or a head mass above one,
+  and, when the sample carries ``rollout_log_probs``, a head whose entry for
+  the sampled token disagrees with them (rows shifted against the
+  response). The worker also refuses ids outside the vocabulary. The check
+  runs in torch (``score_centering/heads.py``); 64 samples of 1,024 tokens at
+  ``top-k`` 128 take under a second on a CPU.
+- The driver refuses a family that declares no weight and
+  ``--context-parallel-size`` above 1. For a family on Slime's policy loss it
+  also refuses ``--use-tis``, ``--get-mismatch-metrics``, ``--use-opsm`` and
+  ``--custom-pg-loss-reducer-function-path``: Slime reweights, masks or
+  re-reduces the policy-gradient term under them, beyond the declared weight.
+  The critic's value loss is left alone.
 - The recorded top-K dominates record size: at ``capture_topk`` 128 a
   response token carries about 3.5 KB of JSON instead of about 35 bytes. A
   smaller head shrinks records, but leaves more of the drift uncorrected
   when the sampler's tail differs from the trainer's (the paper found 32
   effective in its settings).
-- The driver refuses ``--use-tis``, ``--use-kl-loss`` and a nonzero
-  ``--entropy-coef``, because the family replaces the Slime loss that applies
-  them. It also refuses ``--context-parallel-size`` above 1. Tinker has no
-  implementation, so selecting the family on Tinker fails when the training
-  plan is created.
 
 The step reports aggregate metrics only, as sums of per-sample means:
-``score_centering_sampled_weight``, ``score_centering_correction_l1`` (the
-L1 norm of the centering coefficients), ``score_centering_sampler_head_mass``,
-``score_centering_trainer_head_mass``, ``score_centering_tail_ratio`` and
-``score_centering_tail_clipped`` (the fraction of positions where a tail fell
-below ``min-tail-mass``). ``tests/reef_service/test_score_centering_parity.py``
-compares the kernel with a full-vocabulary reference.
+``score_centering_term`` (the reduced term), ``score_centering_correction_l1``
+(the L1 norm of the centering coefficients),
+``score_centering_sampler_head_mass``, ``score_centering_trainer_head_mass``,
+``score_centering_tail_ratio`` and ``score_centering_tail_clipped`` (the
+fraction of positions where a tail fell below the floor); ``loss`` includes
+the term. ``tests/reef_service/test_score_centering_parity.py`` checks the
+term, added to each weight's loss and to SAO's own loss, against a
+full-vocabulary reference.
