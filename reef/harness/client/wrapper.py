@@ -834,15 +834,15 @@ def _item_line(item: Mapping[str, Any]) -> str:
 
 #: Where an adapter's binary keeps the sessions a person resumes, and the file name around a session's id. The
 #: binary's own exit hint names the bare vendor command, which runs outside this install and its proxy.
-RESUMABLE_SESSIONS = {"hermes": ("sessions", "session_", ".json")}
+RESUMABLE_SESSION_LAYOUTS = {"hermes": ("sessions", "session_", ".json")}
 
 
-def resumable_sessions(adapter: str, compose_dir: str) -> dict[str, float]:
+def resumable_session_mtimes(adapter: str, compose_dir: str) -> dict[str, float]:
     """The ids of the sessions the adapter's binary keeps in the installed tree, each with its file's mtime."""
-    spec = RESUMABLE_SESSIONS.get(adapter)
-    if spec is None:
+    session_layout = RESUMABLE_SESSION_LAYOUTS.get(adapter)
+    if session_layout is None:
         return {}
-    directory, prefix, suffix = spec
+    directory, prefix, suffix = session_layout
     return {
         path.name[len(prefix) : -len(suffix)]: path.stat().st_mtime
         for path in (Path(compose_dir) / directory).glob(f"{prefix}*{suffix}")
@@ -939,7 +939,7 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
         # The loop's session log outlives the temp copy: it lands beside the installed tree.
         env.setdefault("REEF_NATIVE_SESSION_DIR", str(Path(compose_dir).resolve() / "sessions"))
 
-    sessions_before = resumable_sessions(adapter, compose_dir)
+    session_mtimes_before = resumable_session_mtimes(adapter, compose_dir)
     # Ahead of the person's arguments: a binary that reads the last of a repeated flag keeps the person's.
     # A version flag starts no session, and a binary may take it only when nothing is ahead of it.
     leading_args = () if args and args[0] in descriptor.client_version_args else descriptor.client_args
@@ -964,13 +964,16 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     # The one session this run wrote, by its file: the newest row would pick a session another run keeps open.
-    touched = [
-        session
-        for session, mtime in resumable_sessions(adapter, compose_dir).items()
-        if sessions_before.get(session) != mtime
+    written_session_ids = [
+        session_id
+        for session_id, mtime in resumable_session_mtimes(adapter, compose_dir).items()
+        if session_mtimes_before.get(session_id) != mtime
     ]
-    if len(touched) == 1:
-        print(f"reef-{adapter}: resume this session with: reef-{adapter} --resume {touched[0]}", file=sys.stderr)
+    if len(written_session_ids) == 1:
+        print(
+            f"reef-{adapter}: resume this session with: reef-{adapter} --resume {written_session_ids[0]}",
+            file=sys.stderr,
+        )
     sys.exit(result.returncode)
 
 
