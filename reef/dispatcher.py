@@ -25,7 +25,7 @@ from reef.artifact.repository import EnumerableRepositoryBackendFactory, Reposit
 from reef.core.errors import ScenarioBusy, UnknownScenario
 from reef.core.records_types import AgentRecord, RequestType
 from reef.core.reports import ReportValidationError, validate_report_payload
-from reef.core.training_request_payload import normalize_training_request_payload
+from reef.core.training_request import normalize_training_request_payload
 from reef.harness.tree.nodes import directive_shaped, secret_shaped
 from reef.observability import (
     ExperimentTracker,

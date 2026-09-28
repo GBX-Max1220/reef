@@ -20,7 +20,7 @@ from reef.artifact.artifact import Artifact, ArtifactError, ArtifactNotFound, Ar
 from reef.core.errors import ReefError, UnknownScenario
 from reef.core.records_types import AgentRecord, RequestType
 from reef.core.requirements import ancestor_requiring_nothing, required_by
-from reef.core.training_request_payload import normalize_training_request_payload
+from reef.core.training_request import normalize_training_request_payload
 from reef.dispatcher import Dispatcher
 from reef.harness.adapters import available_adapters, get_adapter
 from reef.harness.episodes.model_binding import ModelBinding, ModelBindingError

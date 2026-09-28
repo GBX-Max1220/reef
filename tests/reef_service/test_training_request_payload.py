@@ -5,8 +5,7 @@ from dataclasses import replace
 import pytest
 
 from reef.core import RequestType
-from reef.core.training_request import TrainingRequest
-from reef.core.training_request_payload import normalize_training_request_payload
+from reef.core.training_request import TrainingRequest, normalize_training_request_payload
 from reef.service.request_service import normalize_request_payload
 
 
