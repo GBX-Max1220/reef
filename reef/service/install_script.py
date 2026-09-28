@@ -187,9 +187,9 @@ def _wrapper_lines(
         "fi",
         f"# Symlink into ~/.local/bin so {wrapper_name} is on PATH, on every run: the link may have been",
         "# pointed elsewhere since the wrapper was written (an install into another directory), and",
-        "# ln -sf costs nothing. The link target must be absolute: DEST defaults to the relative",
-        "# ./reef-harness, and a relative target resolves against the link's own directory, so the",
-        f"# link dangles and {wrapper_name} is not runnable from anywhere.",
+        "# ln -sf costs nothing. The link target must be absolute: a DEST the person names may be",
+        "# relative (./reef-harness), and a relative target resolves against the link's own directory, so",
+        f"# the link dangles and {wrapper_name} is not runnable from anywhere.",
         'DEST_ABS="$(cd "$DEST" && pwd)"',
         'mkdir -p "$HOME/.local/bin"',
         f'ln -sf "$DEST_ABS/{_double_quoted(wrapper_name)}" "$HOME/.local/bin/{_double_quoted(wrapper_name)}"',
@@ -744,7 +744,9 @@ def render_install_script(
         "#     sh install.sh [DEST] [PREFIX]",
         "set -eu",
         "",
-        'DEST="${1:-./reef-harness}"',
+        # With no install root named, the install goes under the home directory, outside the project the agent
+        # works in, which a session can write; named after the scenario, or the adapter when there is none.
+        f'DEST="${{1:-$HOME/reef-harness/{_double_quoted(scenario or descriptor.name)}}}"',
         f'PREFIX="${{2:-${{{PREFIX_ENV}:-{_SHELL_PREFIX_ROOT}}}/{descriptor.name}}}"',
         f'BINARY="$PREFIX/{_double_quoted(install.binary_path)}"',
         f'CHECKSUM="{checksum}"',

@@ -933,7 +933,7 @@ def test_install_script_golden_structure() -> None:
 #     sh install.sh [DEST] [PREFIX]
 set -eu
 
-DEST="${1:-./reef-harness}"
+DEST="${1:-$HOME/reef-harness/code-repair}"
 PREFIX="${2:-${REEF_HARNESS_PREFIX:-$HOME/.local/share/reef-harness}/pi}"
 BINARY="$PREFIX/node_modules/.bin/pi"
 CHECKSUM="@CHECKSUM@"
@@ -1223,9 +1223,9 @@ if [ ! -x "$DEST/reef-pi" ] || [ "$(wrapper_text)" != "$(cat "$DEST/reef-pi")" ]
 fi
 # Symlink into ~/.local/bin so reef-pi is on PATH, on every run: the link may have been
 # pointed elsewhere since the wrapper was written (an install into another directory), and
-# ln -sf costs nothing. The link target must be absolute: DEST defaults to the relative
-# ./reef-harness, and a relative target resolves against the link's own directory, so the
-# link dangles and reef-pi is not runnable from anywhere.
+# ln -sf costs nothing. The link target must be absolute: a DEST the person names may be
+# relative (./reef-harness), and a relative target resolves against the link's own directory, so
+# the link dangles and reef-pi is not runnable from anywhere.
 DEST_ABS="$(cd "$DEST" && pwd)"
 mkdir -p "$HOME/.local/bin"
 ln -sf "$DEST_ABS/reef-pi" "$HOME/.local/bin/reef-pi"
@@ -1556,8 +1556,26 @@ def test_install_and_wrapper_ignore_a_reef_directory_in_the_working_directory(tm
 
 
 @pytest.mark.unit
+def test_an_install_with_no_root_named_goes_under_the_home_directory(tmp_path) -> None:
+    """With no install root named, the script installs into ~/reef-harness/<scenario>, outside the project the agent
+    works in, and writes nothing into the directory it runs from."""
+    script, _, prefix, env = _install_fixture(
+        tmp_path, binary_version="0.84.2", npm="#!/bin/sh\nexit 1\n", scenario="demo"
+    )
+    project = tmp_path / "project"
+    project.mkdir()
+    # An empty first argument is no argument to "${1:-...}", so the second can still name the prefix.
+    result = subprocess.run(
+        ["sh", str(script), "", str(prefix)], cwd=project, env=env, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert (Path(env["HOME"]) / "reef-harness" / "demo" / "reef-pi").is_file()
+    assert list(project.iterdir()) == []
+
+
+@pytest.mark.unit
 def test_the_path_symlink_resolves_when_dest_is_the_relative_default(tmp_path) -> None:
-    """The README installs into the default relative ./reef-harness.
+    """A person may name a relative install root such as ./reef-harness.
 
     ``ln -s`` reads a relative target against the link's own directory, so
     linking "$DEST/reef-pi" from ~/.local/bin left a dangling link pointing at

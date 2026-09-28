@@ -363,13 +363,12 @@ def install_hint(config: Mapping[str, Any]) -> str | None:
 
     Printed when the stack is up so nobody copies it from a README: the
     address the service listens on (loopback when it binds every interface),
-    the adapter the deployment evolves, the token the config holds, and an
-    install root under the home directory. The token is exported once, so
-    curl's header and the script, whose binding takes it from ``REEF_TOKEN``,
-    read the same value: a script run without it would install a harness every
-    call of which answers 401. The script's own default install root is
-    ``./reef-harness`` in the directory it runs from, often the project the
-    agent works in, where a session could change what the next one runs."""
+    the adapter the deployment evolves, and the token the config holds. The
+    token is exported once, so curl's header and the script, whose binding
+    takes it from ``REEF_TOKEN``, read the same value: a script run without it
+    would install a harness every call of which answers 401. The script
+    installs under ``~/reef-harness/<scenario>`` by default, outside the
+    project the agent works in."""
     # A schema-version 2 file (the shipped profiles) resolves the recipe's evolution section under reef; an
     # unversioned file keeps it at the top level.
     adapter = config_value(config, "reef", "evolution", "adapter") or config_value(config, "evolution", "adapter")
@@ -385,11 +384,10 @@ def install_hint(config: Mapping[str, Any]) -> str | None:
         if isinstance(tokens, list) and tokens:
             token = str(tokens[0])
     url = f"'http://{host}:{port}/reef/harness/install?adapter={adapter}'"
-    root = f"~/reef-harness/{adapter}"
     if token:
         header = '-H "Authorization: Bearer $REEF_TOKEN"'
-        return f"export REEF_TOKEN={shlex.quote(str(token))}; curl -fsS {header} {url} | bash -s -- {root}"
-    return f"curl -fsS {url} | bash -s -- {root}"
+        return f"export REEF_TOKEN={shlex.quote(str(token))}; curl -fsS {header} {url} | bash"
+    return f"curl -fsS {url} | bash"
 
 
 def _component_selection(

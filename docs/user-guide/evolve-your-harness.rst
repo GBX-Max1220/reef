@@ -582,24 +582,23 @@ the install works before any step has run:
 .. code:: bash
 
    curl -fsS -H "x-reef-scenario: harness-evolve-demo" \
-     'http://127.0.0.1:8900/reef/harness/install?adapter=pi' | \
-     bash -s -- ~/reef-harness/harness-evolve-demo
+     'http://127.0.0.1:8900/reef/harness/install?adapter=pi' | bash
 
    reef-pi doctor
    reef-pi -p "fix the failing test in auth.py"
    reef-pi report --score 0 --feedback "missed the empty-token case"
 
-The script's argument is the install root, ``./reef-harness`` when you name
-none. Put it outside the project the agent works in. An agent can write
-files in its project, also from a sandbox such as Codex's
-``workspace-write``, so with the install root there a session can change
-the files the next session runs, for example rewrite the agent's config so
-that the next session runs without approvals. For ``reef-codex`` and
-``reef-dsh``, also keep it out of ``/tmp`` and ``$TMPDIR``: the Codex and
-dsh sandboxes let a command write there too, so an install root there is
-as open to a session as one in the project. A home directory path such as
-``~/reef-harness/<adapter>`` is outside all of these, unless the agent's
-project is your home directory itself.
+The script installs into ``~/reef-harness/<scenario>``, here
+``~/reef-harness/harness-evolve-demo``; ``bash -s -- <dir>`` names another
+install root. Keep any install root outside the project the agent works in.
+An agent can write files in its project, also from a sandbox such as
+Codex's ``workspace-write``, so with the install root there a session can
+change the files the next session runs, for example rewrite the agent's
+config so that the next session runs without approvals. For ``reef-codex``
+and ``reef-dsh``, also keep it out of ``/tmp`` and ``$TMPDIR``: the Codex and
+dsh sandboxes let a command write there too, so an install root there is as
+open to a session as one in the project. The default is outside all of
+these, unless the agent's project is your home directory itself.
 
 The script installs the pinned agent, writes the tree and its model binding,
 and puts a ``reef-<adapter>`` wrapper (here ``reef-pi``) on your PATH. With

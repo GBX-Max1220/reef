@@ -223,7 +223,7 @@ export default function versionCheck(pi) {
       `curl -fsS -H 'x-reef-scenario: ${scenario}' ` +
       (token ? '-H "Authorization: Bearer $REEF_TOKEN" ' : "") +
       // The installer takes the destination as its first argument; without
-      // it a reinstall lands at ./reef-harness relative to the agent's cwd.
+      // it a reinstall lands in ~/reef-harness/<scenario>, not this tree.
       `'${serviceUrl}/reef/harness/install?adapter=pi' | bash -s -- '${destDir}'`;
     // The option names what runs: the wrapper's update when one is on disk, else the pipeline itself.
     const updateOption = `Update with ${wrapper ? "reef-pi update" : instruction}`;
