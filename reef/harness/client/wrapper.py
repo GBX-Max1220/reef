@@ -184,6 +184,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -965,13 +966,14 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
     # Ahead of the person's arguments: a binary that reads the last of a repeated flag keeps the person's.
     # A version flag starts no session, and a binary may take it only when nothing is ahead of it.
     leading_args = () if args and args[0] in descriptor.client_version_args else descriptor.client_args
-    returncode: int | None = None
+    # Ctrl-C reaches the agent too, in the same process group, and the wrapper waits for it to end on its own.
+    # A handler that does nothing, not SIG_IGN: exec resets it, so the agent keeps the default action, and no
+    # KeyboardInterrupt can land between waitpid reaping the agent and Popen recording its status, which would lose
+    # the status and read as 0.
+    previous_sigint = signal.signal(signal.SIGINT, lambda signum, frame: None)
     try:
         agent = subprocess.Popen([binary, *leading_args, *args], env=env)
-        # Ctrl-C reaches the agent too, in the same process group: wait for it to end on its own.
-        while returncode is None:
-            with contextlib.suppress(KeyboardInterrupt):
-                returncode = agent.wait()
+        returncode = agent.wait()
     finally:
         proxy.publish_turn()
         proxy.stop()
@@ -989,6 +991,7 @@ def run_agent(binary: str, compose_dir: str, scenario: str, adapter: str, env_va
                 os.replace(staging, destination)
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
+            signal.signal(signal.SIGINT, previous_sigint)
 
     # An agent a signal ended exits as a shell reports it: 128 plus the signal, 130 after Ctrl-C.
     sys.exit(128 - returncode if returncode < 0 else returncode)
