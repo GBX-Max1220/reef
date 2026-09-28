@@ -153,8 +153,10 @@ package's own submodules and third-party libraries):
      - ``service``, ``core``
 
 Shared batches and candidate evaluation contracts live in ``core/batches.py``
-and ``core/evaluation.py``. Request requirements and their release-chain
-interpretation live in ``core/requirements.py``. Storage owns commit record
+and ``core/evaluation.py``. Training-request payload validation lives in
+``core/training_request_payload.py``; ``core/training_request.py`` holds the
+queued instruction carried by a training batch. Request requirements and their
+release-chain interpretation live in ``core/requirements.py``. Storage owns commit record
 encoding; scenario owns commit ordering and recovery. Artifact admission lives
 with surface contracts, while checkpoint cadence is recipe policy.
 ``recipe/cordis.py`` assembles the harness training backend, and
