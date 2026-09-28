@@ -157,7 +157,7 @@ class OfficialPublicEvaluator(Judge):
         self.case_workers = case_workers
         self.rootless_single_id = configure_rootless_single_id()
         self.reuse_containers = os.environ.get("GUIDANCE_TTT_ALE_REUSE_CONTAINERS", "").strip() == "1"
-        self._evaluation_lock = threading.BoundedSemaphore(
+        self.evaluation_lock = threading.BoundedSemaphore(
             int(os.environ.get("GUIDANCE_TTT_AHC_MAX_ACTIVE_EVALS", "8"))
         )
         # Import after ALE_BENCH_DATA is pinned. These are the public APIs and
@@ -182,10 +182,12 @@ class OfficialPublicEvaluator(Judge):
             from ale_bench.data import build_rust_tools, load_problem
             from ale_bench.tool_wrappers import generate_inputs
 
-            problem, seeds, _standings, _rank_map, data_root = load_problem(
+            problem_data = load_problem(
                 problem_id=problem_id,
                 lite_version=False,
             )
+            problem, seeds = problem_data[:2]
+            data_root = problem_data[4]
             self.problem = problem
             self.data_root = data_root
             if len(seeds.public) != self.config["public_cases"]:
@@ -220,7 +222,7 @@ class OfficialPublicEvaluator(Judge):
         from ale_bench.result import JudgeResult, ResourceUsage, Result
         from ale_bench.tool_wrappers import run_cases
 
-        with self._evaluation_lock:
+        with self.evaluation_lock:
             case_results = run_cases(
                 inputs=self.inputs,
                 code=code,

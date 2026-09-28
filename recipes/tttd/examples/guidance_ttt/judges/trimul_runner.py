@@ -1,3 +1,5 @@
+"""Run the pinned TriMul evaluator and preserve its structured timing results."""
+
 from __future__ import annotations
 
 import math
@@ -8,12 +10,65 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Literal, TypedDict
 
 import yaml
 
 
-def build_case_file(cases: list[dict[str, Any]]) -> str:
+class TriMulCase(TypedDict):
+    """Input fields from the pinned evaluator's task.yml, with upstream names."""
+
+    seqlen: int
+    bs: int
+    dim: int
+    hiddendim: int
+    seed: int
+    nomask: bool
+    distribution: str
+
+
+class EvaluationModeResult(TypedDict):
+    mode: Literal["test", "leaderboard"]
+    passed: bool
+    returncode: int | None
+    timed_out: bool
+    error: str
+    elapsed_s: float
+    result: dict[str, str]
+    stdout: str
+    stderr: str
+
+
+class BenchmarkRecord(TypedDict):
+    index: int
+    spec: str
+    runs: int
+    mean_ns: float
+    mean_us: float
+    std_ns: float
+    best_ns: float
+    worst_ns: float
+
+
+class TriMulReport(TypedDict):
+    all_correct: bool
+    score_us: float | None
+    ranking_by: Literal["geom"]
+    test_count: int
+    benchmark_count: int
+    benchmarks: list[BenchmarkRecord]
+    test: EvaluationModeResult
+    leaderboard: EvaluationModeResult | None
+    error: str
+
+
+class TriMulEvaluationResult(TypedDict):
+    report: TriMulReport
+    provider: Literal["official_trimul_evaluator"]
+    elapsed_s: float
+
+
+def build_case_file(cases: list[TriMulCase]) -> str:
     """Serialize cases exactly as libkernelbot's build_test_string does."""
     lines = ["; ".join(f"{key}: {value}" for key, value in case.items()) for case in cases]
     return "\n".join(lines) + "\n"
@@ -31,11 +86,11 @@ def parse_popcorn_output(raw: str) -> dict[str, str]:
 def run_mode(
     workspace: Path,
     *,
-    mode: str,
-    cases: list[dict[str, Any]],
+    mode: Literal["test", "leaderboard"],
+    cases: list[TriMulCase],
     timeout_s: int,
     subprocess_env: dict[str, str] | None,
-) -> dict[str, Any]:
+) -> EvaluationModeResult:
     cases_path = workspace / f"{mode}_cases.txt"
     cases_path.write_text(build_case_file(cases), encoding="utf-8")
     with tempfile.TemporaryFile(mode="w+") as output:
@@ -85,12 +140,12 @@ def run_mode(
     }
 
 
-def benchmark_records(result: dict[str, str]) -> list[dict[str, Any]]:
+def benchmark_records(result: dict[str, str]) -> list[BenchmarkRecord]:
     try:
         count = int(result["benchmark-count"])
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("official leaderboard output has no valid benchmark-count") from exc
-    records: list[dict[str, Any]] = []
+    records: list[BenchmarkRecord] = []
     for index in range(count):
         prefix = f"benchmark.{index}"
         try:
@@ -114,7 +169,7 @@ def benchmark_records(result: dict[str, str]) -> list[dict[str, Any]]:
     return records
 
 
-def geometric_mean_runtime_us(records: list[dict[str, Any]]) -> float:
+def geometric_mean_runtime_us(records: list[BenchmarkRecord]) -> float:
     if not records:
         raise ValueError("cannot score an empty benchmark set")
     log_sum = sum(math.log(float(record["mean_us"])) for record in records)
@@ -127,15 +182,15 @@ def run_official_trimul_evaluation(
     evaluator_dir: str | Path,
     timeout_s: int = 1100,
     subprocess_env: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> TriMulEvaluationResult:
     """Run the vendored TTT-Discover correctness and H100 leaderboard evaluator."""
     source_dir = Path(evaluator_dir)
     task_path = source_dir / "task.yml"
     if not task_path.exists():
         raise FileNotFoundError(f"TriMul evaluator task.yml not found under {source_dir}")
     task = yaml.safe_load(task_path.read_text(encoding="utf-8"))
-    tests = list(task.get("tests") or [])
-    benchmarks = list(task.get("benchmarks") or [])
+    tests: list[TriMulCase] = list(task.get("tests") or [])
+    benchmarks: list[TriMulCase] = list(task.get("benchmarks") or [])
     if len(tests) != 18 or len(benchmarks) != 7:
         raise ValueError(
             f"TriMul evaluator contract changed: expected 18 tests and 7 benchmarks, "
@@ -154,8 +209,8 @@ def run_official_trimul_evaluation(
             timeout_s=timeout_s,
             subprocess_env=subprocess_env,
         )
-        leaderboard_run: dict[str, Any] | None = None
-        records: list[dict[str, Any]] = []
+        leaderboard_run: EvaluationModeResult | None = None
+        records: list[BenchmarkRecord] = []
         score_us: float | None = None
         error = ""
         if test_run["passed"]:
@@ -173,9 +228,9 @@ def run_official_trimul_evaluation(
                 except ValueError as exc:
                     error = str(exc)
             else:
-                error = str(leaderboard_run.get("error") or "leaderboard correctness/timing failed")
+                error = leaderboard_run["error"] or "leaderboard correctness/timing failed"
         else:
-            error = str(test_run.get("error") or "public correctness tests failed")
+            error = test_run["error"] or "public correctness tests failed"
 
     all_correct = bool(test_run["passed"] and leaderboard_run and leaderboard_run["passed"] and score_us)
     return {

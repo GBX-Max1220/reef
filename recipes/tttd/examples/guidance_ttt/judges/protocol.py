@@ -104,7 +104,7 @@ def serve(judge: Judge, *, host: str = "127.0.0.1", port: int, max_workers: int 
             pool.submit(evaluate, sid, pid, language, code)
             self.reply(200, {"sid": sid})
 
-        def log_message(self, *_args) -> None:
+        def log_message(self, *args: object) -> None:
             return
 
     ThreadingHTTPServer((host, port), Handler).serve_forever()

@@ -84,7 +84,7 @@ def test_each_task_loads_and_verifies_a_bootstrap(task, monkeypatch, tmp_path, j
 def test_trimul_ranks_lower_raw_latency_first(monkeypatch, tmp_path, judge_endpoint):
     from recipes.tttd.examples.guidance_ttt.harness.state import LibraryEntry
 
-    url, replies, _ = judge_endpoint
+    url, replies = judge_endpoint[:2]
     monkeypatch.setenv("GUIDANCE_TASK", "trimul")
     config = replace(RunConfig.load(), state_dir=tmp_path)
     (tmp_path / "bootstrap.py").write_text("def custom_kernel(data): return data")
@@ -121,7 +121,7 @@ def test_trimul_ranks_lower_raw_latency_first(monkeypatch, tmp_path, judge_endpo
 
 
 def test_ahc_partial_reward_is_not_a_valid_archive_candidate(judge_endpoint):
-    url, replies, _ = judge_endpoint
+    url, replies = judge_endpoint[:2]
     replies["result"].update(score=1.2, scoreUnbounded=3600000, valid=False, trainingRewardOnInvalid=True)
     result = JudgeScorer(url, problem_id="ahc058")("int main() {}")
     assert result.reward == 1.2
@@ -142,14 +142,14 @@ def test_ahc_partial_reward_is_not_a_valid_archive_candidate(judge_endpoint):
     ],
 )
 def test_judge_contract_errors_stop_the_step(judge_endpoint, change):
-    url, replies, _ = judge_endpoint
+    url, replies = judge_endpoint[:2]
     replies["result"].update(change)
     with pytest.raises(JudgeUnavailableError):
         JudgeScorer(url)("int main() {}")
 
 
 def test_rejected_bootstrap_never_creates_an_archive(judge_endpoint, monkeypatch, tmp_path):
-    url, replies, _ = judge_endpoint
+    url, replies = judge_endpoint[:2]
     monkeypatch.setenv("GUIDANCE_TASK", "polyomino_packing")
     replies["result"].update(valid=False, status="error", message="wrong answer")
     with pytest.raises(RuntimeError, match="bootstrap failed"):
