@@ -301,7 +301,7 @@ def stream_lines(name: str, paths: Sequence[str]) -> list[str]:
     ]
 
 
-def _binding_lines(bindings: Mapping[str, str]) -> list[str]:
+def _binding_lines(bindings: Mapping[str, str], is_token_expected: bool) -> list[str]:
     """Shell that writes the model binding files over the pulled tree, the token filled from the environment.
 
     The binding is written after the checksum and on every run, so a rerun
@@ -317,10 +317,15 @@ def _binding_lines(bindings: Mapping[str, str]) -> list[str]:
         "# The model binding: the adapter's config pointed at the Reef this script was",
         "# fetched from, with the client's own token; written on every run, after the",
         "# checksum, so the served composition stays what the release file records.",
-        'if [ -z "${REEF_TOKEN:-}" ]; then',
-        '    echo "reef: REEF_TOKEN is not set; the harness will reach Reef without a token (a service that needs one answers 401: run the install again with REEF_TOKEN=<token> in front of bash)" >&2',
-        "fi",
     ]
+    if is_token_expected:
+        # The request for this script carried a token, so the service wants one on every call; a service with no
+        # token needs none and gets no warning.
+        lines += [
+            'if [ -z "${REEF_TOKEN:-}" ]; then',
+            '    echo "reef: REEF_TOKEN is not set; the harness will reach Reef without a token, and this service answers 401 to that: export REEF_TOKEN=<token> and run the install again" >&2',
+            "fi",
+        ]
     for relative in sorted(bindings):
         lines.append(_write_file_block(relative, bindings[relative]).rstrip("\n"))
         lines.extend(
@@ -490,6 +495,7 @@ def render_install_script(
     binding_files: Mapping[str, str] | None = None,
     requires: Sequence[Mapping[str, Any]] = (),
     fallback_release_id: str | None = None,
+    is_token_expected: bool = False,
 ) -> str:
     """The complete install script for one adapter and one served manifest.
 
@@ -500,7 +506,9 @@ def render_install_script(
     re-rendered with the model binding that points the harness at Reef; they
     carry ``TOKEN_PLACEHOLDER`` where the token goes, and the script writes
     them over the pulled files after the checksum, filling the placeholder
-    from ``$REEF_TOKEN``. ``requires`` is the manifest's list of what the
+    from ``$REEF_TOKEN``; ``is_token_expected`` says the request for the
+    script carried a token, and only then does the script warn when
+    ``$REEF_TOKEN`` is unset. ``requires`` is the manifest's list of what the
     release needs from the person over its chain: the script refuses,
     before it installs or writes anything, while one item is not checked
     off in the release file on disk, naming ``fallback_release_id`` (the newest
@@ -651,7 +659,7 @@ def render_install_script(
         "fi",
         "",
         *_wrapper_lines(descriptor, env_var, compose_dir, release_id, scenario),
-        *_binding_lines(bindings),
+        *_binding_lines(bindings, is_token_expected),
         "",
         'echo "reef: done"',
         f'echo "run:     $DEST/{wrapper_name}"',

@@ -669,6 +669,7 @@ def _install_fixture(
     npm: str,
     scenario: str = "",
     binding_files: dict[str, str] | None = None,
+    is_token_expected: bool = False,
 ) -> tuple[Path, Path, Path, dict]:
     """A rendered script, a PATH shim dir, and an install prefix.
 
@@ -685,6 +686,7 @@ def _install_fixture(
             content_id="content-test",
             scenario=scenario,
             binding_files=binding_files,
+            is_token_expected=is_token_expected,
         )
     )
     prefix = tmp_path / "prefix"
@@ -746,7 +748,11 @@ def test_install_script_writes_the_model_binding_with_the_clients_token(tmp_path
     binding_files = {"pi-agent/models.json": bound["pi-agent/models.json"]}
     assert TOKEN_PLACEHOLDER in binding_files["pi-agent/models.json"]
     script, dest, prefix, env = _install_fixture(
-        tmp_path, binary_version="0.84.2", npm="#!/bin/sh\nexit 1\n", binding_files=binding_files
+        tmp_path,
+        binary_version="0.84.2",
+        npm="#!/bin/sh\nexit 1\n",
+        binding_files=binding_files,
+        is_token_expected=True,
     )
     result = _run_install(script, dest, prefix, {**env, "REEF_TOKEN": "tok-123"})
     assert result.returncode == 0, result.stderr
@@ -762,10 +768,11 @@ def test_install_script_writes_the_model_binding_with_the_clients_token(tmp_path
     assert _extract_reef_url("pi", dest / "pi-agent") == "http://reef.test:8901"
     # The composition files and the release file are what the manifest served; the binding rides beside them.
     assert (dest / "pi-agent/AGENTS.md").read_text(encoding="utf-8") == HOSTILE_FILES["pi-agent/AGENTS.md"]
-    # A rerun re-points the tree and exits clean; without a token the script says so and still installs.
+    # A rerun re-points the tree and exits clean; without a token the script says so, since the request for it
+    # carried one, and still installs.
     again = _run_install(script, dest, prefix, {k: v for k, v in env.items() if k != "REEF_TOKEN"})
     assert again.returncode == 0, again.stderr
-    assert "REEF_TOKEN is not set" in again.stderr
+    assert "REEF_TOKEN is not set" in again.stderr and "export REEF_TOKEN=<token>" in again.stderr
     # pi refuses an empty key, so the binding carries a stand-in the wrapper reads back as no token.
     models = json.loads((dest / "pi-agent/models.json").read_text(encoding="utf-8"))
     assert models["providers"]["reef"]["apiKey"] == NO_TOKEN_API_KEY
@@ -2429,6 +2436,36 @@ def test_a_slow_install_render_starts_the_script_with_a_spinner_and_keeps_a_fail
     truncated = render_install_preamble() + render_streamed_install("echo 'reef: partial'\n").removesuffix("}\n")
     ran = run_shell(truncated)
     assert ran.returncode != 0 and "reef: partial" not in ran.stdout
+
+
+@pytest.mark.unit
+def test_the_install_script_warns_of_a_missing_token_only_when_the_service_wants_one(tmp_path: Path) -> None:
+    """A service with no token serves a script that installs without REEF_TOKEN and says nothing about it; a
+    request that carried a token reached a service that wants one, and its script warns when REEF_TOKEN is unset."""
+    seed = ({"id": "style", "name": "rules", "config": {"text": "Answer briefly."}},)
+
+    async def script_for(tokens: tuple[str, ...], headers: dict[str, str]) -> str:
+        service_dir = tmp_path / f"service-{len(tokens)}"
+        service_dir.mkdir()
+        dispatcher = _dispatcher(service_dir, (), seed=seed)
+        dispatcher.get_or_create_scenario("demo")
+        client = TestClient(TestServer(create_app(dispatcher, tokens=tokens, inference_handler=_EchoBackend())))
+        await client.start_server()
+        try:
+            response = await client.get(
+                "/reef/harness/install?adapter=pi", headers={"x-reef-scenario": "demo", **headers}
+            )
+            assert response.status == 200
+            return await response.text()
+        finally:
+            await client.close()
+
+    open_script = asyncio.run(script_for((), {}))
+    assert "REEF_TOKEN is not set" not in open_script
+    guarded_script = asyncio.run(script_for(("tok",), {"Authorization": "Bearer tok"}))
+    assert "REEF_TOKEN is not set" in guarded_script
+    # The token itself stays out of the served script either way.
+    assert 'tok"' not in guarded_script and "Bearer tok" not in guarded_script
 
 
 @pytest.mark.unit
