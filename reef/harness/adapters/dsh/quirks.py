@@ -164,26 +164,27 @@ def _with_frontmatter(path: str, text: str, user_only: bool) -> str:
     opened = len(lines) > 1 and lines[0].removesuffix("\r") == "---"
     if opened and not user_only:
         return text
-    header: dict[str, Any] = {}
-    body = text
+    header: dict[str, Any]
     if opened:
         # A command's own frontmatter is written again with the command's invocation.
         close = next((index for index in range(1, len(lines)) if lines[index].removesuffix("\r") == "---"), 0)
         if not close:
             raise RenderError(f"dsh command {path} opens its frontmatter with --- but never closes it")
         try:
-            own = yaml.load("\n".join(lines[1:close]), Loader=FrontmatterLoader)
+            frontmatter = yaml.load("\n".join(lines[1:close]), Loader=FrontmatterLoader)
         except yaml.YAMLError as exc:
             raise RenderError(f"dsh command {path} has frontmatter that is not valid YAML: {exc}") from exc
         except RecursionError as exc:
             raise RenderError(f"dsh command {path} has frontmatter nested too deeply to read") from exc
-        except Exception as exc:
-            # The model writes this text: any other failure to read it (an integer past Python's digit limit, say)
-            # is a refusal of the proposal, never a crash of the step.
+        except ValueError as exc:
+            # An integer past Python's digit limit fails its conversion with ValueError: the model writes this
+            # text, so that is a refusal of the proposal, never a crash of the step.
             raise RenderError(f"dsh command {path} has frontmatter Reef cannot read: {exc}") from exc
-        if own is not None and not isinstance(own, dict):
+        if frontmatter is not None and not isinstance(frontmatter, dict):
             raise RenderError(f"dsh command {path} has frontmatter that is not a YAML mapping")
-        header, body = own or {}, "\n".join(lines[close + 1 :])
+        header, body = frontmatter or {}, "\n".join(lines[close + 1 :])
+    else:
+        header, body = {}, text
     name = path.split("/")[-2]
     first = next((line.strip().lstrip("#").strip() for line in body.splitlines() if line.strip()), "")
     description = first[:200] or name

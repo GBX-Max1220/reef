@@ -370,14 +370,14 @@ def installed_url_suffix(binding: _Binding, file: Path, url: str) -> str:
     except (WrapperError, ValueError, yaml.YAMLError):
         return suffixes[0]
     while stack:
-        under, value = stack.pop()
+        holding_key, value = stack.pop()
         if isinstance(value, list):
-            stack.extend((under, item) for item in value)
+            stack.extend((holding_key, item) for item in value)
         elif isinstance(value, Mapping):
             stack.extend((str(name), item) for name, item in value.items())
-            if under == parent and value.get(binding.path[-1]) == url:
-                for suffix, own in markers:
-                    if own and all(value.get(key) == text for key, text in own.items()):
+            if holding_key == parent and value.get(binding.path[-1]) == url:
+                for suffix, dialect_values in markers:
+                    if dialect_values and all(value.get(key) == text for key, text in dialect_values.items()):
                         return suffix
     return suffixes[0]
 
