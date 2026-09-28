@@ -138,15 +138,15 @@ def atif_steps(trial_dir: Path) -> list[dict[str, Any]]:
     return steps
 
 
-def own_trial(trials: Path, before: Collection[str], uri: object) -> Path | None:
+def own_trial(trials_dir: Path, names_before_run: Collection[str], uri: str | None) -> Path | None:
     """The trial directory this run wrote: the one the Lab row's ``file://`` URI names (Harbor's trial URI), else
-    the one directory that appeared under ``trials`` during the run. ``None`` when neither says, so a reused trials
+    the one directory that appeared under ``trials_dir`` during the run. ``None`` when neither says, so a reused trials
     directory never lends this run an earlier trial's steps."""
     if isinstance(uri, str) and uri.startswith("file://"):
         path = Path(urllib.parse.unquote(urllib.parse.urlparse(uri).path))
         if path.is_dir():
             return path
-    appeared = [path for path in trials.iterdir() if path.is_dir() and path.name not in before]
+    appeared = [path for path in trials_dir.iterdir() if path.is_dir() and path.name not in names_before_run]
     return appeared[0] if len(appeared) == 1 else None
 
 
@@ -219,7 +219,7 @@ def run(task: str) -> int:
     if environment not in ("docker", "e2b"):
         raise TerminusTreeError(f"unsupported terminus environment {environment!r}; use docker or e2b")
 
-    before = {path.name for path in trials.iterdir()}
+    names_before_run = {path.name for path in trials.iterdir()}
     row = asyncio.run(
         Lab(trials).run(
             task,
@@ -228,11 +228,9 @@ def run(task: str) -> int:
             environment={"type": environment},
         )
     )
-    error = str((getattr(row, "tags", None) or {}).get("error") or "")
+    error = str((row.tags or {}).get("error") or "")
     if environment == "docker":
         error = mount_error(error, trials)
-    record = trial_record(
-        task, getattr(row, "rewards", None), own_trial(trials, before, getattr(row, "uri", None)), error
-    )
+    record = trial_record(task, row.rewards, own_trial(trials, names_before_run, row.uri), error)
     write_trial(record, sessions)
     return 1 if record["failed"] else 0
