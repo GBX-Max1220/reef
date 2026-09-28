@@ -22,8 +22,9 @@ torch = pytest.importorskip("torch")
 
 from recipes.sao.slime import SaoAlgorithm
 from recipes.sao.slime.objective import compute_sao_loss
-from reef.train.algos.score_centering import PolicyGradientWeight, ScoreCenteringSettings
+from reef.train.slime_backend.algorithm import PolicyGradientWeight
 from reef.train.slime_backend.distill.objective import gather_log_probs_at_ids
+from reef.train.slime_backend.score_centering import ScoreCenteringSettings
 from reef.train.slime_backend.score_centering.heads import PADDING_LOG_PROB
 from reef.train.slime_backend.score_centering.term import centering_term, importance_weight
 

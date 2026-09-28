@@ -77,15 +77,53 @@ CLI flags are ``--<pkg>-*``.
 from __future__ import annotations
 
 import importlib
+import math
 from abc import ABC, abstractmethod
 from argparse import Namespace
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from numbers import Real
 from typing import Any, Literal
 
 from reef.core.batches import TrajectoryItem
 from reef.core.trajectories import source_record_id, trajectory_reward
-from reef.train.algos.score_centering import PolicyGradientWeight
+
+
+#: ``none`` is ``f(r) = 1``; ``truncated`` is ``min(r, upper)``; ``masked`` is
+#: ``r`` strictly inside ``(lower, upper)`` and 0 outside.
+POLICY_GRADIENT_WEIGHT_KINDS = ("none", "truncated", "masked")
+
+
+def is_finite_number(value: object) -> bool:
+    return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+
+
+@dataclass(frozen=True)
+class PolicyGradientWeight:
+    """The weight ``f(r)``, ``r = p / q``, a family's loss puts on the sampled token's score.
+
+    A loss of the form ``-A_t * sg[f(p_t / q_t)] * log p_t``, with ``q`` the
+    rollout engine's probability, declares its ``f`` with this value through
+    :meth:`SlimeAlgorithm.policy_gradient_weight`: plain off-policy
+    REINFORCE is ``none``, truncated importance sampling ``truncated`` with
+    its cap as ``upper``, and masked importance sampling ``masked`` with its
+    trust region as ``(lower, upper)``. Score centering reads it to add the
+    matching correction term.
+    """
+
+    kind: str
+    lower: float = 0.0
+    upper: float = math.inf
+
+    def __post_init__(self) -> None:
+        if self.kind not in POLICY_GRADIENT_WEIGHT_KINDS:
+            raise ValueError(f"policy-gradient weight kind must be one of: {', '.join(POLICY_GRADIENT_WEIGHT_KINDS)}")
+        if self.kind == "truncated" and (not is_finite_number(self.upper) or self.upper <= 0):
+            raise ValueError("a truncated policy-gradient weight needs a finite cap upper > 0")
+        if self.kind == "masked" and (
+            not is_finite_number(self.lower) or not is_finite_number(self.upper) or not 0 <= self.lower < self.upper
+        ):
+            raise ValueError("a masked policy-gradient weight needs finite bounds 0 <= lower < upper")
 
 
 @dataclass(frozen=True)

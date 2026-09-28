@@ -13,8 +13,7 @@ from typing import Any
 
 from recipes.sao.slime.utils.data_builder import build_sao_rollout_data, sao_sample_row
 from recipes.sao.slime.utils.schedule import DEFAULT_CRITIC_STEPS_PER_ACTOR, SaoSchedule
-from reef.train.algos.score_centering import PolicyGradientWeight
-from reef.train.slime_backend.algorithm import SlimeAlgorithm, TrainResult, register_loss_family
+from reef.train.slime_backend.algorithm import PolicyGradientWeight, SlimeAlgorithm, TrainResult, register_loss_family
 
 _logger = logging.getLogger(__name__)
 

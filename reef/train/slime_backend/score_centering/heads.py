@@ -13,8 +13,12 @@ from typing import Any
 
 import torch
 
-from reef.train.algos.score_centering import ScoreCenteringSettings
-from reef.train.slime_backend.score_centering import ROLLOUT_KEYS, TOPK_INDICES_KEY, TOPK_LOG_PROBS_KEY
+from reef.train.slime_backend.score_centering import (
+    ROLLOUT_KEYS,
+    TOPK_INDICES_KEY,
+    TOPK_LOG_PROBS_KEY,
+    ScoreCenteringSettings,
+)
 
 #: Log-prob given to the placeholder head of an untrained position; its
 #: probability underflows to exactly zero in float32.

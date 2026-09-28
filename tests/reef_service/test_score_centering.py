@@ -10,13 +10,14 @@ import pytest
 from reef_service._trajectories import policy_trajectory
 
 from reef.train.algos import StepScheduling
-from reef.train.algos.score_centering import PolicyGradientWeight, ScoreCenteringSettings
+from reef.train.slime_backend.algorithm import PolicyGradientWeight
 from reef.train.slime_backend.reef_adapters.preparation import prepare_slime_step
 from reef.train.slime_backend.reef_adapters.slime_arguments import add_reef_slime_arguments, configure_reef_loss_args
 from reef.train.slime_backend.score_centering import (
     ROLLOUT_KEYS,
     TOPK_INDICES_KEY,
     TOPK_LOG_PROBS_KEY,
+    ScoreCenteringSettings,
     sampler_topk_columns,
     settings_from_args,
 )

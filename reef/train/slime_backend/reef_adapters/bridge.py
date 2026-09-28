@@ -32,7 +32,6 @@ from reef.runtime.recovery import ScenarioHistory, history_path, marker_rollouts
 from reef.runtime.scheduler import _producing_runtime_load_ids
 from reef.runtime.scheduler import max_staleness as _max_staleness
 from reef.train.algos.registry import loss_family_refs
-from reef.train.algos.score_centering import ScoreCenteringSettings
 from reef.train.slime_backend.algorithm import SlimeAlgorithm
 from reef.train.slime_backend.data_builder import to_slime_rollout_data
 from reef.train.slime_backend.loss_families import resolve_loss_family
@@ -51,7 +50,7 @@ from reef.train.slime_backend.reef_adapters.training_job.storage import (
     RetentionConfig,
     critic_checkpoint_due,
 )
-from reef.train.slime_backend.score_centering import settings_from_args
+from reef.train.slime_backend.score_centering import ScoreCenteringSettings, settings_from_args
 
 # One training step (train + checkpoint + publish) legitimately takes hours;
 # this bounds a single Ray RPC from the bridge to its workers.

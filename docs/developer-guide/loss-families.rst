@@ -221,7 +221,7 @@ engine's probability:
        # SAO: the ratio masked to its trust region.
        return PolicyGradientWeight("masked", lower=1 - args.eps_clip, upper=1 + args.eps_clip_high)
 
-``PolicyGradientWeight`` (``reef.train.algos.score_centering``) is ``none``
+``PolicyGradientWeight`` (``reef.train.slime_backend.algorithm``) is ``none``
 (``f = 1``, plain off-policy REINFORCE), ``truncated`` (``min(r, upper)``) or
 ``masked`` (``r`` strictly inside ``(lower, upper)``, else 0). The default,
 ``None``, refuses score centering: a clipped surrogate against a recomputed

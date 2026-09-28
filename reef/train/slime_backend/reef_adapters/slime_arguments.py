@@ -5,11 +5,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from reef.train.algos.score_centering import ScoreCenteringSettings
 from reef.train.slime_backend.loss_families import LOSS_FAMILIES
 from reef.train.slime_backend.reef_adapters.arguments import SlimeArguments
 from reef.train.slime_backend.reef_adapters.megatron.lora import validate_megatron_lora_args
-from reef.train.slime_backend.score_centering import configure_score_centering
+from reef.train.slime_backend.score_centering import ScoreCenteringSettings, configure_score_centering
 
 REEF_MEGATRON_INIT_PATH = "reef.train.slime_backend.reef_adapters.worker_hooks.initialize_megatron_objective"
 REEF_MODEL_PROVIDER_PATH = "reef.train.slime_backend.reef_adapters.megatron.model_provider.provide_actor_model"
