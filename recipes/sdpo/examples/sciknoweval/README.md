@@ -53,7 +53,7 @@ the loss. It picks which sibling demonstrates, and a rollout whose question no
 sibling solved keeps the plain request and a sample weight of 0, so the step
 still takes its optimizer step.
 
-Evaluation samples are not recorded, so they never become training data.
+Evaluation samples are never reported, so they never become training data.
 
 ## The model, and what this does not reproduce
 

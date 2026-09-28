@@ -110,8 +110,8 @@ def test_the_grid_is_sampled_in_one_pool_and_kept_in_group_and_rollout_order(che
 
 
 @pytest.mark.unit
-def test_evaluation_is_unrecorded_and_asks_one_choice_per_request(chemistry) -> None:
-    """avg@n asks n unrecorded single-choice requests per question and scores the fraction correct."""
+def test_evaluation_is_unreported_and_asks_one_choice_per_request(chemistry) -> None:
+    """avg@n asks n unreported single-choice requests per question and scores the fraction correct."""
     asked = []
     letters = {ROW["prompt"]: iter(["B", "B", "A", "D"]), "Another question?": iter(["A"] * 4)}
 

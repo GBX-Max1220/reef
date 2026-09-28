@@ -2,7 +2,7 @@
 
 The agent makes no model calls of its own. ``stage.py`` in the task's image
 samples, reports and waits for training against the Reef service on the host,
-evaluates avg@16 on the test split every few steps, and writes the curve where
+evaluates avg@n on the test split every few steps, and writes the curve where
 the verifier reads it. This class runs it, hands it the run's settings from the
 host environment (every ``SDPO_*`` and ``REEF_*`` variable), and keeps its
 output in the trial's agent log.

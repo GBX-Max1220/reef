@@ -123,7 +123,7 @@ def sample_grid(
 
 
 def evaluation_sample(client: ReefClient, row: dict[str, Any]) -> bool:
-    """One unrecorded sample of a question at the evaluation decoding, scored.
+    """One unreported sample of a question at the evaluation decoding, scored.
 
     Reef's chat capture serves one choice per request, so avg@n is n of these.
     """
@@ -145,7 +145,7 @@ def evaluation_sample(client: ReefClient, row: dict[str, Any]) -> bool:
 def evaluate(client: ReefClient, rows: Sequence[dict[str, Any]], *, n: int, concurrency: int) -> dict[str, Any]:
     """avg@n over the test split: every question sampled ``n`` times, the fraction correct over all samples.
 
-    The samples are not recorded, so an evaluation never becomes training
+    The samples are never reported, so an evaluation never becomes training
     data. The ``n`` samples of every question share one pool of
     ``concurrency`` requests.
     """

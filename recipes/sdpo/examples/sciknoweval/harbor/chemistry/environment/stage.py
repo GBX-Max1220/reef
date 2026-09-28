@@ -16,7 +16,7 @@ from the seed:
 
 Every ``EVAL_EVERY`` steps, and before the first, the stage evaluates avg@16 on
 the 210 test questions and appends it to ``RESULT_PATH``: that series is the
-learning curve. The evaluation samples are not recorded, so they never become
+learning curve. The evaluation samples are never reported, so they never become
 training data.
 
 Section 3 of the paper disables environment feedback, so a report carries no
