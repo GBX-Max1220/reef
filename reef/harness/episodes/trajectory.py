@@ -310,28 +310,28 @@ class OpencodeSessionReader(TrajectoryReader):
         # Here, not at the top: importing reef loads this module, and the record contracts load no database module.
         import sqlite3
 
-        database = Path(path).resolve() / "opencode.db"
-        if not database.is_file():
+        database_path = Path(path).resolve() / "opencode.db"
+        if not database_path.is_file():
             return ()
 
         def decoded(table: str, row_id: str, data: str) -> dict[str, Any]:
             try:
                 value = json.loads(data)
             except json.JSONDecodeError as exc:
-                raise TrajectoryError(f"opencode {table} {row_id} in {database} is not valid JSON") from exc
+                raise TrajectoryError(f"opencode {table} {row_id} in {database_path} is not valid JSON") from exc
             if not isinstance(value, dict):
-                raise TrajectoryError(f"opencode {table} {row_id} in {database} is not an object")
+                raise TrajectoryError(f"opencode {table} {row_id} in {database_path} is not an object")
             return value
 
         try:
-            connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+            connection = sqlite3.connect(f"{database_path.as_uri()}?mode=ro", uri=True)
             try:
                 messages = connection.execute("SELECT id, session_id, data FROM message ORDER BY id").fetchall()
                 parts = connection.execute("SELECT id, message_id, data FROM part ORDER BY id").fetchall()
             finally:
                 connection.close()
         except sqlite3.Error as exc:
-            raise TrajectoryError(f"opencode session database {database} cannot be read: {exc}") from exc
+            raise TrajectoryError(f"opencode session database {database_path} cannot be read: {exc}") from exc
         content: dict[str, list[dict[str, Any]]] = {}
         for part_id, message_id, data in parts:
             content.setdefault(message_id, []).append({"id": part_id, **decoded("part", part_id, data)})

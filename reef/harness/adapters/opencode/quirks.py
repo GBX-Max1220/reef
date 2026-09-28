@@ -390,11 +390,12 @@ def finalize_render(files: dict[str, str]) -> dict[str, str]:
         elif agent.get("hidden") is False:
             hidden.discard(name)
     if "default_agent" in config:
-        default = config["default_agent"]
-        check_agent_name("default_agent", default, agents)
-        if agents[default] == "subagent" or default in hidden:
+        default_agent = config["default_agent"]
+        check_agent_name("default_agent", default_agent, agents)
+        if agents[default_agent] == "subagent" or default_agent in hidden:
             raise RenderError(
-                f"opencode default_agent names agent {default!r}, a subagent or a hidden agent, which cannot start a run"
+                f"opencode default_agent names agent {default_agent!r}, a subagent or a hidden agent, which cannot"
+                " start a run"
             )
     elif all(mode == "subagent" or name in hidden for name, mode in agents.items()):
         # With no default_agent opencode starts a run with the first agent that is neither, and fails with none.
@@ -419,17 +420,17 @@ def finalize_render(files: dict[str, str]) -> dict[str, str]:
                 )
             check_command(where, frontmatter, agents)
         elif path.startswith(SKILL_DIR) and path.endswith("/SKILL.md"):
-            skill = path[len(SKILL_DIR) : -len("/SKILL.md")]
+            skill_name = path[len(SKILL_DIR) : -len("/SKILL.md")]
             # The file is read as it came first, so a form the check refuses stays refused.
-            frontmatter = read_frontmatter(f"skill {skill!r}", text)
+            frontmatter = read_frontmatter(f"skill {skill_name!r}", text)
             has_block = text.startswith("---") and not text.startswith("----")
             listed = [frontmatter.get("name"), frontmatter.get("description")]
             if has_block and not all(isinstance(value, str) and value.strip() for value in listed):
                 # opencode lists a skill only with both, so one without them would never reach the model.
-                raise RenderError(f"opencode skill {skill!r} must set name and description in its frontmatter")
+                raise RenderError(f"opencode skill {skill_name!r} must set name and description in its frontmatter")
             if not has_block:
                 first = next((line.strip().lstrip("#").strip() for line in text.splitlines() if line.strip()), "")
-                header = {"name": skill, "description": first[:200] or skill}
+                header = {"name": skill_name, "description": first[:200] or skill_name}
                 files[path] = (
                     "---\n"
                     + "".join(f"{key}: {json.dumps(value, ensure_ascii=False)}\n" for key, value in header.items())

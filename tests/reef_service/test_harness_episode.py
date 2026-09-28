@@ -26,7 +26,6 @@ from reef.harness.episodes.trajectory import (
     reader_for,
 )
 from reef.harness.tree.render import render_composition
-from reef.recipe.reefine import evolution
 from reef.recipe.reefine.evolution import evaluate, final_assistant_text
 
 PI_FAKE = """\
@@ -247,8 +246,8 @@ def test_opencode_episode_grades_the_final_answer_of_its_session(tmp_path: Path)
     """The reader joins each message to its parts, so the grader finds the text of the last assistant turn."""
     files = render_composition([], get_adapter("opencode"))
     result = run_episode(get_adapter("opencode"), files, "Run it.", binary=fake_binary(tmp_path, OPENCODE_FAKE))
-    assert evolution.final_assistant_text(result.trajectory) == "reef-ok"
-    assert evolution.evaluate("[health] Run the shell command `echo reef-ok`.", result) == 1.0
+    assert final_assistant_text(result.trajectory) == "reef-ok"
+    assert evaluate("[health] Run the shell command `echo reef-ok`.", result) == 1.0
 
 
 def test_codex_episode_collects_nested_rollout_and_whitelists_boot_state(tmp_path: Path) -> None:
