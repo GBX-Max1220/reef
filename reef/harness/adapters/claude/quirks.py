@@ -116,13 +116,16 @@ def quoted_values(block: str) -> str:
     lines = []
     for line in block.split("\n"):
         match = PLAIN_LINE.match(line)
-        if match is not None:
-            value = match.group(2)
-            quoted = value[0] in "\"'" and value[-1] == value[0]
-            if not quoted and YAML_SYNTAX.search(value):
-                escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-                line = f'{match.group(1)}: "{escaped}"'
-        lines.append(line)
+        if match is None:
+            lines.append(line)
+            continue
+        value = match.group(2)
+        quoted = value[0] in "\"'" and value[-1] == value[0]
+        if not quoted and YAML_SYNTAX.search(value):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'{match.group(1)}: "{escaped}"')
+        else:
+            lines.append(line)
     return re.sub(r"(?m)^\t+", lambda tabs: "  " * len(tabs.group(0)), "\n".join(lines))
 
 

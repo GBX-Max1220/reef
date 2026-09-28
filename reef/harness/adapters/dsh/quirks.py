@@ -124,7 +124,7 @@ def _with_frontmatter(path: str, text: str, user_only: bool) -> str:
     return "---\n" + yaml.dump(header, sort_keys=False, default_flow_style=False, allow_unicode=True) + "---\n" + text
 
 
-def holds_js(value: Any) -> bool:
+def holds_js(value: object) -> bool:
     if isinstance(value, str):
         return value.startswith(_JS)
     if isinstance(value, dict):

@@ -21,7 +21,7 @@ from reef.harness.episodes.model_binding import ModelBinding
 from reef.harness.tree.mutations import Mutation, admit_mutations
 from reef.harness.tree.render import RenderError, render_composition
 
-OTHER = "http://127.0.0.1:9/v1"
+OTHER_URL = "http://127.0.0.1:9/v1"
 
 
 def render(adapter: str, nodes: list[tuple[str, Any]], *, bound: bool, api: str = "openai") -> dict[str, str]:
@@ -35,12 +35,14 @@ def config(data: dict[str, Any], target: str = "primary") -> tuple[str, dict[str
 
 
 CLAUDE_REFUSED = [
-    pytest.param({"env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_BEDROCK_BASE_URL": OTHER}}, id="provider-switch"),
-    pytest.param({"env": {"HTTPS_PROXY": OTHER}}, id="proxy"),
+    pytest.param(
+        {"env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_BEDROCK_BASE_URL": OTHER_URL}}, id="provider-switch"
+    ),
+    pytest.param({"env": {"HTTPS_PROXY": OTHER_URL}}, id="proxy"),
     pytest.param({"env": {"ANTHROPIC_SMALL_FAST_MODEL": "m"}}, id="env-small-fast-model"),
     pytest.param({"env": {"ANTHROPIC_DEFAULT_HAIKU_MODEL": "m"}}, id="env-tier-model"),
     pytest.param({"env": {"CLAUDE_CODE_SUBAGENT_MODEL": "m"}}, id="env-subagent-model"),
-    pytest.param({"env": {"anthropic_base_url": OTHER}}, id="env-name-in-another-case"),
+    pytest.param({"env": {"anthropic_base_url": OTHER_URL}}, id="env-name-in-another-case"),
     pytest.param({"model": "m"}, id="settings-model"),
     pytest.param({"fallbackModel": ["m"]}, id="settings-fallback-model"),
     pytest.param({"apiKeyHelper": "echo k"}, id="credential-helper"),
@@ -64,8 +66,8 @@ def test_claude_refuses_a_setting_that_chooses_the_route(data: dict[str, Any], b
 def test_claude_writes_the_binding_env_only_beside_the_binding_token() -> None:
     # A tree alone never carries the endpoint; the binding's three names pass because its token is beside them.
     with pytest.raises(RenderError, match="must not set env ANTHROPIC_BASE_URL"):
-        render("claude", [config({"env": {"ANTHROPIC_BASE_URL": OTHER}})], bound=False)
-    files = render("claude", [config({"env": {"ANTHROPIC_BASE_URL": OTHER}})], bound=True, api="anthropic")
+        render("claude", [config({"env": {"ANTHROPIC_BASE_URL": OTHER_URL}})], bound=False)
+    files = render("claude", [config({"env": {"ANTHROPIC_BASE_URL": OTHER_URL}})], bound=True, api="anthropic")
     env = json.loads(files["claude/settings.json"])["env"]
     assert env == {
         "ANTHROPIC_AUTH_TOKEN": "k-bound",
@@ -106,37 +108,45 @@ def test_claude_keeps_the_settings_a_tree_tunes() -> None:
 
 
 HERMES_REFUSED = [
-    pytest.param({"model": {"base_url": OTHER}}, False, id="model-endpoint"),
+    pytest.param({"model": {"base_url": OTHER_URL}}, False, id="model-endpoint"),
     pytest.param({"model": "openrouter/m"}, False, id="model-name"),
     pytest.param({"model": {"model": "m"}}, True, id="model-alternate-name"),
     pytest.param(
-        {"fallback_model": {"provider": "custom", "model": "m", "base_url": OTHER}}, True, id="fallback-model"
+        {"fallback_model": {"provider": "custom", "model": "m", "base_url": OTHER_URL}}, True, id="fallback-model"
     ),
     pytest.param({"fallback_providers": [{"provider": "openrouter", "model": "m"}]}, True, id="fallback-providers"),
-    pytest.param({"providers": {"evil": {"base_url": OTHER, "key_cmd": "echo k"}}}, True, id="named-provider"),
-    pytest.param({"custom_providers": [{"name": "evil", "base_url": OTHER}]}, True, id="custom-providers"),
+    pytest.param({"providers": {"evil": {"base_url": OTHER_URL, "key_cmd": "echo k"}}}, True, id="named-provider"),
+    pytest.param({"custom_providers": [{"name": "evil", "base_url": OTHER_URL}]}, True, id="custom-providers"),
     pytest.param(
-        {"auxiliary": {"compression": {"provider": "custom", "base_url": OTHER, "model": "m"}}}, True, id="auxiliary"
+        {"auxiliary": {"compression": {"provider": "custom", "base_url": OTHER_URL, "model": "m"}}},
+        True,
+        id="auxiliary",
     ),
     pytest.param({"auxiliary": {"vision": {"model": "m"}}}, True, id="auxiliary-model"),
     pytest.param({"auxiliary": {"openrouter_model": "m"}}, True, id="auxiliary-fallback-model"),
     pytest.param(
         {"auxiliary": {"title_generation": {"enabled": False, "prefer_fast_model": True}}}, True, id="fast-model"
     ),
-    pytest.param({"delegation": {"provider": "custom", "base_url": OTHER, "model": "m"}}, True, id="delegation"),
+    pytest.param({"delegation": {"provider": "custom", "base_url": OTHER_URL, "model": "m"}}, True, id="delegation"),
     pytest.param({"moa": {"presets": {"p": {"aggregator": {"provider": "custom", "model": "m"}}}}}, True, id="moa"),
     pytest.param({"cron": {"model": "m", "provider": "openrouter"}}, True, id="cron"),
-    pytest.param({"base_url": OTHER}, False, id="top-level-endpoint"),
+    pytest.param({"base_url": OTHER_URL}, False, id="top-level-endpoint"),
     pytest.param({"provider": "openrouter"}, True, id="top-level-provider"),
-    pytest.param({"model": {"api_base": OTHER}}, False, id="model-endpoint-alias"),
+    pytest.param({"model": {"api_base": OTHER_URL}}, False, id="model-endpoint-alias"),
     pytest.param({"model": {"name": "m"}}, True, id="model-name-alias"),
     pytest.param({"model": {"key_env": "OPENROUTER_API_KEY"}}, True, id="model-key-name"),
     pytest.param(
-        {"model_aliases": {"fast": {"model": "m", "provider": "custom", "base_url": OTHER}}}, True, id="model-aliases"
+        {"model_aliases": {"fast": {"model": "m", "provider": "custom", "base_url": OTHER_URL}}},
+        True,
+        id="model-aliases",
     ),
     pytest.param({"model": {"aliases": {"fast": "openrouter/m"}}}, True, id="model-short-aliases"),
     pytest.param(
-        {"auxiliary": {"compression": {"fallback_chain": [{"provider": "custom", "model": "m", "base_url": OTHER}]}}},
+        {
+            "auxiliary": {
+                "compression": {"fallback_chain": [{"provider": "custom", "model": "m", "base_url": OTHER_URL}]}
+            }
+        },
         True,
         id="auxiliary-fallback-chain",
     ),
@@ -147,11 +157,11 @@ HERMES_REFUSED = [
     ),
     pytest.param({"auxiliary": {"vision": {"api_key_env": "OPENROUTER_API_KEY"}}}, True, id="auxiliary-key-name"),
     # The older compression keys, which hermes moves into auxiliary.compression.
-    pytest.param({"compression": {"summary_base_url": OTHER}}, True, id="compression-summary-base-url"),
+    pytest.param({"compression": {"summary_base_url": OTHER_URL}}, True, id="compression-summary-base-url"),
     pytest.param({"compression": {"summary_model": "m"}}, True, id="compression-summary-model"),
     pytest.param({"compression": {"summary_provider": "openrouter"}}, True, id="compression-summary-provider"),
     pytest.param(
-        {"curator": {"auxiliary": {"provider": "openrouter", "model": "m", "base_url": OTHER}}}, True, id="curator"
+        {"curator": {"auxiliary": {"provider": "openrouter", "model": "m", "base_url": OTHER_URL}}}, True, id="curator"
     ),
     pytest.param({"moa": {"aggregator": {"provider": "openrouter", "model": "m"}}}, True, id="moa-flat-preset"),
     pytest.param({"auxiliary": {"compression": {"extra_body": {"model": "m"}}}}, True, id="auxiliary-body-model"),
@@ -226,14 +236,14 @@ def test_hermes_keeps_the_settings_a_tree_tunes() -> None:
     render("hermes", [config(tuned)], bound=False)
 
 
-DSH_ROUTE = {"api": "openai-completions", "baseURL": OTHER, "models": [{"id": "m"}]}
+DSH_ROUTE = {"api": "openai-completions", "baseURL": OTHER_URL, "models": [{"id": "m"}]}
 DSH_REFUSED = [
     pytest.param({"llm-pi-ai": {"config": {"providers": {"evil": DSH_ROUTE}}}}, False, id="route-in-tree"),
     pytest.param({"llm-pi-ai": {"config": {"providers": {"evil": DSH_ROUTE}}}}, True, id="second-route"),
     pytest.param({"llm-pi-ai": {"config": {"providers": {"reef": {"headers": {"x": "y"}}}}}}, True, id="route-extra"),
     pytest.param({"agent-default-model": {"config": {"provider": "evil", "model": "m"}}}, False, id="default-model"),
-    pytest.param({"llm-deepseek": {"config": {"baseURL": OTHER}}}, True, id="deepseek-adapter"),
-    pytest.param({"web-search-deepseek": {"config": {"baseURL": OTHER, "model": "m"}}}, True, id="search-model"),
+    pytest.param({"llm-deepseek": {"config": {"baseURL": OTHER_URL}}}, True, id="deepseek-adapter"),
+    pytest.param({"web-search-deepseek": {"config": {"baseURL": OTHER_URL, "model": "m"}}}, True, id="search-model"),
     pytest.param(
         {"compaction-basic": {"config": {"modelPolicies": [{"summarizationModel": "m"}]}}}, True, id="compaction"
     ),
@@ -274,17 +284,20 @@ def test_dsh_keeps_the_settings_a_tree_tunes(api: str) -> None:
 PI_REFUSED = [
     pytest.param(
         config(
-            {"providers": {"evil": {"api": "openai-completions", "baseUrl": OTHER, "models": [{"id": "m"}]}}}, "models"
+            {"providers": {"evil": {"api": "openai-completions", "baseUrl": OTHER_URL, "models": [{"id": "m"}]}}},
+            "models",
         ),
         True,
         id="keyless-provider",
     ),
-    pytest.param(config({"providers": {"openai": {"baseUrl": OTHER}}}, "models"), True, id="built-in-endpoint"),
-    pytest.param(config({"providers": {"reef": {"baseUrl": OTHER}}}, "models"), False, id="binding-provider-in-tree"),
+    pytest.param(config({"providers": {"openai": {"baseUrl": OTHER_URL}}}, "models"), True, id="built-in-endpoint"),
+    pytest.param(
+        config({"providers": {"reef": {"baseUrl": OTHER_URL}}}, "models"), False, id="binding-provider-in-tree"
+    ),
     pytest.param(config({"providers": {"reef": {"headers": {"x": "!cat k"}}}}, "models"), True, id="binding-extra"),
     pytest.param(config({"defaultProvider": "evil", "defaultModel": "evil/m"}), False, id="default-model"),
     pytest.param(config({"enabledModels": ["evil/m"]}), True, id="enabled-models"),
-    pytest.param(config({"httpProxy": OTHER}), True, id="proxy"),
+    pytest.param(config({"httpProxy": OTHER_URL}), True, id="proxy"),
 ]
 
 
@@ -305,15 +318,19 @@ def test_pi_keeps_the_settings_a_tree_tunes(api: str) -> None:
 
 TERMINUS_REFUSED = [
     pytest.param({"model_name": "openai/m"}, False, id="model-name-in-tree"),
-    pytest.param({"api_base": OTHER}, False, id="endpoint-in-tree"),
-    pytest.param({"llm_kwargs": {"base_url": OTHER}}, True, id="constructor-endpoint"),
-    pytest.param({"llm_call_kwargs": {"base_url": OTHER}}, True, id="call-base-url"),
-    pytest.param({"llm_call_kwargs": {"api_base": OTHER}}, True, id="call-api-base"),
+    pytest.param({"api_base": OTHER_URL}, False, id="endpoint-in-tree"),
+    pytest.param({"llm_kwargs": {"base_url": OTHER_URL}}, True, id="constructor-endpoint"),
+    pytest.param({"llm_call_kwargs": {"base_url": OTHER_URL}}, True, id="call-base-url"),
+    pytest.param({"llm_call_kwargs": {"api_base": OTHER_URL}}, True, id="call-api-base"),
     pytest.param({"llm_call_kwargs": {"custom_llm_provider": "openai"}}, True, id="call-provider"),
     pytest.param({"llm_call_kwargs": {"model": "openai/m"}}, True, id="call-model"),
-    pytest.param({"llm_call_kwargs": {"fallbacks": [{"model": "m", "api_base": OTHER}]}}, True, id="call-fallback"),
-    pytest.param({"llm_call_kwargs": {"aws_bedrock_runtime_endpoint": OTHER}}, True, id="call-cloud-endpoint"),
-    pytest.param({"llm_call_kwargs": {"success_callback": ["langfuse"], "langfuse_host": OTHER}}, True, id="logging"),
+    pytest.param(
+        {"llm_call_kwargs": {"fallbacks": [{"model": "m", "api_base": OTHER_URL}]}}, True, id="call-fallback"
+    ),
+    pytest.param({"llm_call_kwargs": {"aws_bedrock_runtime_endpoint": OTHER_URL}}, True, id="call-cloud-endpoint"),
+    pytest.param(
+        {"llm_call_kwargs": {"success_callback": ["langfuse"], "langfuse_host": OTHER_URL}}, True, id="logging"
+    ),
     pytest.param({"llm_call_kwargs": {"models": ["m"]}}, True, id="call-fallback-models"),
     pytest.param({"llm_call_kwargs": {"extra_body": {"model": "m"}}}, True, id="body-model"),
     pytest.param({"llm_call_kwargs": {"extra_body": {"models": ["m"]}}}, True, id="body-fallback-models"),
@@ -343,15 +360,15 @@ def test_terminus_keeps_the_arguments_a_tree_tunes() -> None:
 @pytest.mark.parametrize(
     ("adapter", "data"),
     [
-        ("claude", {"env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_BEDROCK_BASE_URL": OTHER}}),
+        ("claude", {"env": {"CLAUDE_CODE_USE_BEDROCK": "1", "ANTHROPIC_BEDROCK_BASE_URL": OTHER_URL}}),
         ("claude", {"env": {"CLAUDE_CODE_EXTRA_BODY": '{"model": "m"}'}}),
-        ("hermes", {"fallback_model": {"provider": "custom", "model": "m", "base_url": OTHER}}),
+        ("hermes", {"fallback_model": {"provider": "custom", "model": "m", "base_url": OTHER_URL}}),
         ("hermes", {"auxiliary": {"compression": {"fallback_chain": [{"provider": "custom", "model": "m"}]}}}),
         ("hermes", {"delegation": {"request_overrides": {"model": "m"}}}),
         ("hermes", {"model": {"api_mode": "bedrock_converse"}}),
         ("dsh", {"llm-pi-ai": {"config": {"providers": {"evil": DSH_ROUTE}}}}),
         ("pi", {"enabledModels": ["evil/m"]}),
-        ("terminus", {"llm_call_kwargs": {"base_url": OTHER}}),
+        ("terminus", {"llm_call_kwargs": {"base_url": OTHER_URL}}),
         ("terminus", {"llm_call_kwargs": {"extra_body": {"model": "m"}}}),
     ],
 )
