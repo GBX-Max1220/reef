@@ -538,16 +538,16 @@ def codex_trust_path(compose_dir: str) -> Path:
     return Path.home() / ".reef" / "trust" / f"{hashlib.sha256(install_root.encode()).hexdigest()}.json"
 
 
-def codex_projects(config: Path) -> dict[str, Any]:
+def codex_projects(config_path: Path) -> dict[str, Any]:
     """The ``projects`` table of a Codex ``config.toml``; empty when the file does not parse."""
     try:
-        projects = tomllib.loads(config.read_text(encoding="utf-8")).get("projects")
+        projects = tomllib.loads(config_path.read_text(encoding="utf-8")).get("projects")
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
     return projects if isinstance(projects, dict) else {}
 
 
-def add_codex_trust(compose_dir: str, config: Path) -> None:
+def add_codex_trust(compose_dir: str, config_path: Path) -> None:
     """Add the folders the person trusted in earlier sessions to the temp ``config.toml`` Codex reads.
 
     Codex writes the answer to its trust prompt into ``$CODEX_HOME/config.toml``,
@@ -555,12 +555,13 @@ def add_codex_trust(compose_dir: str, config: Path) -> None:
     session asks again. A folder the tree's config already names keeps the
     tree's entry, and a copy that would not parse is left as it was."""
     try:
-        stored = json.loads(codex_trust_path(compose_dir).read_text(encoding="utf-8")).get("projects")
-    except (OSError, ValueError, AttributeError):
+        record = json.loads(codex_trust_path(compose_dir).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return
+    stored = record.get("projects") if isinstance(record, dict) else None
     if not isinstance(stored, dict):
         return
-    present = codex_projects(config)
+    present = codex_projects(config_path)
     tables = "".join(
         f"\n[projects.{json.dumps(folder)}]\ntrust_level = {json.dumps(level)}\n"
         for folder, level in sorted(stored.items())
@@ -568,15 +569,15 @@ def add_codex_trust(compose_dir: str, config: Path) -> None:
     )
     if not tables:
         return
-    text = config.read_text(encoding="utf-8")
+    text = config_path.read_text(encoding="utf-8")
     try:
         tomllib.loads(text + tables)
     except tomllib.TOMLDecodeError:
         return
-    config.write_text(text + tables, encoding="utf-8")
+    config_path.write_text(text + tables, encoding="utf-8")
 
 
-def keep_codex_trust(compose_dir: str, config: Path, cwd: Path) -> None:
+def keep_codex_trust(compose_dir: str, config_path: Path, cwd: Path) -> None:
     """Keep the trust Codex wrote for this session's folder, the working directory or the repository above it.
 
     Only those folders: a command in the session can write the temp copy,
@@ -588,7 +589,7 @@ def keep_codex_trust(compose_dir: str, config: Path, cwd: Path) -> None:
         folders.add(str(repository))
     answered = {
         folder: entry["trust_level"]
-        for folder, entry in codex_projects(config).items()
+        for folder, entry in codex_projects(config_path).items()
         if folder in folders and isinstance(entry, dict) and entry.get("trust_level") in CODEX_TRUST_LEVELS
     }
     if not answered:
