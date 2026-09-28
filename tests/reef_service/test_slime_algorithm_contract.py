@@ -55,8 +55,8 @@ class _TestAlgorithm(SlimeAlgorithm):
         pass
 
 
-#: The cookbook families plus the two plain ones tests/conftest.py registers.
-_ALL_FAMILIES = ("openclawrl", "pg", "sao", "sdft", "sdpo", "sft", "tttd")
+#: The cookbook families, Reef's built-in score_centering and the two plain ones tests/conftest.py registers.
+_ALL_FAMILIES = ("openclawrl", "pg", "sao", "score_centering", "sdft", "sdpo", "sft", "tttd")
 
 
 @pytest.mark.unit

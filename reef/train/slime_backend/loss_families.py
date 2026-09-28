@@ -23,8 +23,12 @@ from __future__ import annotations
 
 import importlib
 
-from reef.train.algos.registry import _unregister_loss_family_ref, loss_family_refs
+from reef.train.algos.registry import _unregister_loss_family_ref, loss_family_refs, register_loss_family_ref
 from reef.train.slime_backend.algorithm import SlimeAlgorithm, _loss_families
+
+# Reef's own method-neutral families, referenced like a cookbook family's so
+# resolving the name imports them on first use.
+register_loss_family_ref("score_centering", "reef.train.slime_backend.score_centering:ScoreCenteringAlgorithm")
 
 
 class UnknownLossFamilyError(RuntimeError):
