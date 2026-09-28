@@ -524,17 +524,6 @@ def _rewrite_config(adapter: str, compose_dir: Path, temp_dir: Path, proxy_port:
         dst.write_text(text, encoding="utf-8")
 
 
-def temp_copies_dir() -> Path:
-    """Where a session's temp copy of the tree goes: the person's cache directory, never TMPDIR or /tmp.
-
-    That is ``$XDG_CACHE_HOME/reef-harness/sessions``, under ``~/.cache`` by
-    default. Codex's ``workspace-write`` sandbox and the dsh sandbox let a
-    command write TMPDIR and /tmp, and the copy holds the config the agent
-    reads again during the session (codex reads its ``config.toml`` and
-    ``rules`` again on ``/new``) and the binding with the token."""
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "reef-harness" / "sessions"
-
-
 def _create_temp_composition(
     adapter: str,
     compose_dir: str,
@@ -544,8 +533,8 @@ def _create_temp_composition(
 ) -> str:
     """Build the composition in a temp dir, overriding the binding files.
 
-    The temp dir is made in ``temp_copies_dir``, readable by the person
-    alone. ``copied`` names the files below the composition directory the
+    The temp dir is made in ``$XDG_CACHE_HOME/reef-harness/sessions``
+    (``~/.cache`` by default), readable by the person alone. ``copied`` names the files below the composition directory the
     install recorded, each copied with its mode into real directories, and
     ``linked`` the client state, linked one by one, so a file added to the
     installed tree after the install never reaches a session, what the
@@ -555,9 +544,12 @@ def _create_temp_composition(
     never reads through a link. None links every top-level item, for a tree
     the install recorded nothing for."""
     compose = Path(compose_dir)
-    copies = temp_copies_dir()
-    copies.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temp_dir = tempfile.mkdtemp(prefix="reef-harness-", dir=copies)
+    # The person's cache directory, never TMPDIR or /tmp: Codex's workspace-write sandbox and the dsh sandbox let a
+    # command write those, and the copy holds the config the agent reads again during the session (codex reads its
+    # config.toml and rules again on /new) and the binding with the token.
+    copies_dir = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "reef-harness" / "sessions"
+    copies_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temp_dir = tempfile.mkdtemp(prefix="reef-harness-", dir=copies_dir)
     temp = Path(temp_dir)
 
     for relative in copied or ():
