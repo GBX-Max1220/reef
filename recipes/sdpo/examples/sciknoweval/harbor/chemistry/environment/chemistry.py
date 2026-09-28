@@ -110,10 +110,16 @@ def sample(client: ReefClient, row: dict[str, Any]) -> tuple[str, str]:
     return response["choices"][0]["message"]["content"], receipt
 
 
-def sample_group(client: ReefClient, row: dict[str, Any], rollouts: int) -> list[tuple[str, str]]:
-    """``rollouts`` independent recorded samples of one question, in rollout order."""
-    with ThreadPoolExecutor(max_workers=rollouts) as pool:
-        return list(pool.map(lambda _: sample(client, row), range(rollouts)))
+def sample_grid(
+    client: ReefClient, rows: Sequence[dict[str, Any]], rollouts: int, *, concurrency: int
+) -> list[list[tuple[str, str]]]:
+    """Every question of a step sampled ``rollouts`` times, as one pool of ``concurrency`` recorded requests.
+
+    The result is in (group, rollout) order: one list of samples per question.
+    """
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        samples = list(pool.map(lambda row: sample(client, row), [row for row in rows for _ in range(rollouts)]))
+    return [samples[index * rollouts : (index + 1) * rollouts] for index in range(len(rows))]
 
 
 def evaluation_sample(client: ReefClient, row: dict[str, Any]) -> bool:

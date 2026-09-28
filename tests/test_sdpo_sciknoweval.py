@@ -91,6 +91,25 @@ def test_the_question_schedule_shuffles_each_epoch_and_drops_only_the_tail(chemi
 
 
 @pytest.mark.unit
+def test_the_grid_is_sampled_in_one_pool_and_kept_in_group_and_rollout_order(chemistry) -> None:
+    served = []
+
+    def inference_with_record(scenario, path, payload):
+        served.append(payload["messages"][1]["content"])
+        receipt = f"receipt-{len(served)}"
+        return {"choices": [{"message": {"content": f"<answer>\nA\n</answer> {receipt}"}}]}, receipt
+
+    client = SimpleNamespace(inference=None, inference_with_record=inference_with_record)
+    other = {**ROW, "prompt": "Another question?", "answer": "A"}
+    grid = chemistry.sample_grid(client, [ROW, other], 3, concurrency=4)
+
+    # One request per (question, rollout), every request recorded at temperature 1.
+    assert sorted(served) == sorted([ROW["prompt"]] * 3 + ["Another question?"] * 3)
+    assert [len(rollouts) for rollouts in grid] == [3, 3]
+    assert all(text.endswith(receipt) for rollouts in grid for text, receipt in rollouts)
+
+
+@pytest.mark.unit
 def test_evaluation_is_unrecorded_and_asks_one_choice_per_request(chemistry) -> None:
     """avg@n asks n unrecorded single-choice requests per question and scores the fraction correct."""
     asked = []

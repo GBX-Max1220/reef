@@ -4,8 +4,9 @@ For each step, over the question order ``chemistry.question_schedule`` fixes
 from the seed:
 
     sample  — ``GROUPS_PER_STEP`` questions, each answered
-              ``ROLLOUTS_PER_GROUP`` times through Reef at temperature 1: the
-              student's on-policy grid, recorded with its tokens and log-probs
+              ``ROLLOUTS_PER_GROUP`` times through Reef at temperature 1, all
+              in one pool of requests: the student's on-policy grid,
+              recorded with its tokens and log-probs
     report  — every rollout against its receipt, carrying its coordinates in
               the grid and the reference's binary score
     learn   — the recipe holds the step until the grid is complete, builds it
@@ -38,7 +39,8 @@ EPOCHS = int(os.environ.get("SDPO_EPOCHS", "30"))  # the reference's total_epoch
 SEED = int(os.environ.get("SDPO_SEED", "42"))
 EVAL_EVERY = int(os.environ.get("SDPO_EVAL_EVERY", "5"))  # the reference's test_freq
 EVAL_SAMPLES = int(os.environ.get("SDPO_EVAL_SAMPLES", "16"))  # avg@16, the paper's metric
-EVAL_CONCURRENCY = int(os.environ.get("SDPO_EVAL_CONCURRENCY", "64"))  # requests in flight; each is one sample
+SAMPLE_CONCURRENCY = int(os.environ.get("SDPO_SAMPLE_CONCURRENCY", "64"))  # training requests in flight
+EVAL_CONCURRENCY = int(os.environ.get("SDPO_EVAL_CONCURRENCY", "64"))  # evaluation requests in flight
 #: A ceiling on the steps to run (0 runs the whole schedule).
 STEPS = int(os.environ.get("SDPO_STEPS", "0"))
 #: Stop after the first evaluation past this much pure training time (0 disables the budget).
@@ -84,9 +86,9 @@ def main() -> None:
     for step, question_indices in enumerate(schedule, start=1):
         started = time.time()
         solved = 0
-        for group, question_index in enumerate(question_indices):
-            row = train[question_index]
-            rollouts = chemistry.sample_group(client, row, ROLLOUTS_PER_GROUP)
+        rows = [train[question_index] for question_index in question_indices]
+        grid = chemistry.sample_grid(client, rows, ROLLOUTS_PER_GROUP, concurrency=SAMPLE_CONCURRENCY)
+        for group, (row, rollouts) in enumerate(zip(rows, grid, strict=True)):
             for rollout, (text, receipt) in enumerate(rollouts):
                 score = float(chemistry.is_correct(text, row["answer"]))
                 solved += score
