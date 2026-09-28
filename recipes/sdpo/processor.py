@@ -16,6 +16,7 @@ from typing import Any
 
 from recipes.sdpo.report import SDPOReport
 from reef.core.trajectories import trajectory_reward
+from reef.train.processors.common import recorded_request, recorded_response
 from reef.train.processors.distill import DistillProcessor, normalize_messages_for_template
 from reef.train.processors.reported import GroupDecision, ReportContext
 from reef.train.types import ProcessorContext, TrainDataItem, TrainingBatch, TrajectoryItem, trajectories
@@ -75,20 +76,22 @@ class SDPOProcessor(DistillProcessor):
         if parsed.group >= self.groups_per_step or parsed.rollout >= self.rollouts_per_group:
             raise ValueError("SDPO report coordinates exceed the configured sampling grid")
         # The score picks the demonstrating rollouts; the teacher's distribution is the target.
-        recorded = self.recorded_sample(context, context.require_score())
-        messages = normalize_messages_for_template(recorded.messages)
+        sample = self.recorded_sample(context, context.require_score())
+        payload = context.inferences[0].payload
+        messages, tools = recorded_request(payload)
+        messages = normalize_messages_for_template(messages)
         if not messages or messages[-1].get("role") != "user":
             raise ValueError("SDPO's reprompt template needs a request that ends with the user's question")
         artifact_ref = context.inferences[0].artifact_ref
-        return recorded.sample.with_metadata(
+        return sample.with_metadata(
             sdpo={
                 "step": parsed.step,
                 "group": parsed.group,
                 "rollout": parsed.rollout,
                 "release_id": None if artifact_ref is None else artifact_ref.release_id,
                 "messages": messages,
-                "tools": recorded.tools,
-                "response": recorded.response,
+                "tools": tools,
+                "response": recorded_response(payload),
                 "feedback": parsed.teacher_context,
             }
         )

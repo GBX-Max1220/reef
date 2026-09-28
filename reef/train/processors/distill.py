@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
 from typing import Any
 
 from reef.core.reports import TeacherContextReport
@@ -57,23 +56,6 @@ def normalize_tool_call(call: Mapping[str, Any]) -> dict[str, Any]:
                 function["arguments"] = {}
         normalized["function"] = function
     return normalized
-
-
-@dataclass(frozen=True)
-class RecordedSample:
-    """The student's policy sample with the report it answers and the request and response text its inference recorded."""
-
-    sample: TrajectoryItem
-    report: TeacherContextReport
-    messages: list[Any]
-    tools: list[Any] | None
-    response: str
-
-    @property
-    def response_ids(self) -> list[int]:
-        """The student's response ids: the tail of its tokens that the loss mask covers."""
-        response_length = len(self.sample.training["loss_mask"])
-        return [int(token) for token in self.sample.training["tokens"][-response_length:]]
 
 
 class DistillProcessor(ReportedFeedbackProcessor):
@@ -125,15 +107,12 @@ class DistillProcessor(ReportedFeedbackProcessor):
     def operational_metrics(self) -> Mapping[str, float | int]:
         return {**super().operational_metrics(), "teacher_overflow_reports": self._overflow_count}
 
-    def recorded_sample(self, context: ReportContext, score: float) -> RecordedSample:
-        """The student's policy sample from the report's one recorded inference, with its request and response text.
+    def recorded_sample(self, context: ReportContext, score: float) -> TrajectoryItem:
+        """The student's policy sample from the report's one recorded inference.
 
-        Checks what a teacher sequence needs: the ``TeacherContextReport``
-        schema, one inference, and its recorded prompt and response tokens.
+        Checks what a teacher sequence needs: one inference, and its recorded
+        prompt and response tokens.
         """
-        parsed = context.parsed_report
-        if not isinstance(parsed, TeacherContextReport):
-            raise ValueError(f"{type(self).__name__} requires the TeacherContextReport schema")
         if len(context.inferences) != 1:
             raise ValueError(
                 f"a teacher sequence covers one recorded request per report; report "
@@ -144,9 +123,7 @@ class DistillProcessor(ReportedFeedbackProcessor):
         response_length = len(sample.training.get("loss_mask", []))
         if not 0 < response_length < len(tokens):
             raise ValueError("a teacher sequence requires the recorded prompt and response tokens of the inference")
-        payload = context.inferences[0].payload
-        messages, tools = recorded_request(payload)
-        return RecordedSample(sample, parsed, messages, tools, recorded_response(payload))
+        return sample
 
     def teacher_tokens(
         self,
@@ -180,12 +157,20 @@ class DistillProcessor(ReportedFeedbackProcessor):
         return [*prompt_ids, *(int(token) for token in response_ids)]
 
     def make_sample(self, context: ReportContext) -> TrajectoryItem:
+        parsed = context.parsed_report
+        if not isinstance(parsed, TeacherContextReport):
+            raise ValueError(f"{type(self).__name__} requires the TeacherContextReport schema")
         # The teacher's distribution is the signal; a reported score is metadata only.
-        recorded = self.recorded_sample(context, 0.0 if context.score is None else context.score)
+        sample = self.recorded_sample(context, 0.0 if context.score is None else context.score)
+        payload = context.inferences[0].payload
+        messages, tools = recorded_request(payload)
         teacher_messages, teacher_tools = self.teacher_request(
-            recorded.messages, recorded.tools, recorded.response, recorded.report.teacher_context
+            messages, tools, recorded_response(payload), parsed.teacher_context
         )
-        teacher_tokens = self.teacher_tokens(teacher_messages, teacher_tools, recorded.response_ids)
+        response_length = len(sample.training["loss_mask"])
+        teacher_tokens = self.teacher_tokens(
+            teacher_messages, teacher_tools, sample.training["tokens"][-response_length:]
+        )
         if self._max_teacher_tokens and len(teacher_tokens) > self._max_teacher_tokens:
             self._overflow_reports.add(context.report.agent_record_id)
             logger.warning(
@@ -194,7 +179,7 @@ class DistillProcessor(ReportedFeedbackProcessor):
                 len(teacher_tokens),
                 self._max_teacher_tokens,
             )
-        return recorded.sample.with_training(teacher_tokens=teacher_tokens)
+        return sample.with_training(teacher_tokens=teacher_tokens)
 
     def grouping(self, context: ReportContext) -> tuple[Hashable | None, Hashable | None]:
         # An overflowing report is its own group, so the group decision can release it.
@@ -212,4 +197,4 @@ class DistillProcessor(ReportedFeedbackProcessor):
         return TrainingBatch(f"{self.scenario}:{self.batch_label}:{batch_number}", items)
 
 
-__all__ = ["DistillProcessor", "RecordedSample", "normalize_messages_for_template", "normalize_tool_call"]
+__all__ = ["DistillProcessor", "normalize_messages_for_template", "normalize_tool_call"]
