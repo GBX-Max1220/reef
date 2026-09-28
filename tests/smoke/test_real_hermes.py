@@ -63,14 +63,15 @@ class StubHandler(BaseHTTPRequestHandler):
         usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
         request = json.loads(body)
         answered = sum(1 for message in request.get("messages", []) if message.get("role") == "tool")
-        delta: dict[str, Any] = {"role": "assistant", "content": "READY"}
-        finish = "stop"
         if answered < len(self.server.tool_calls):
             name, arguments = self.server.tool_calls[answered]
             call = {"name": name, "arguments": json.dumps(arguments)}
             tool_call = {"index": 0, "id": f"call-{answered}", "type": "function", "function": call}
-            delta = {"role": "assistant", "tool_calls": [tool_call]}
+            delta: dict[str, Any] = {"role": "assistant", "tool_calls": [tool_call]}
             finish = "tool_calls"
+        else:
+            delta = {"role": "assistant", "content": "READY"}
+            finish = "stop"
         if request.get("stream"):
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

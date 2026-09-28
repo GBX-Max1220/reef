@@ -93,9 +93,11 @@ def version_probe_env(descriptor: AdapterDescriptor, root: Path) -> dict[str, st
     env: dict[str, str] = {}
     for key, value in descriptor.env.items():
         if "{root}" in value:
-            value = value.replace("{root}", str(root))
-            Path(value).mkdir(parents=True, exist_ok=True)
-        env[key] = value
+            relocated_dir = value.replace("{root}", str(root))
+            Path(relocated_dir).mkdir(parents=True, exist_ok=True)
+            env[key] = relocated_dir
+        else:
+            env[key] = value
     return env
 
 
