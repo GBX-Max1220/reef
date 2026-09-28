@@ -13,6 +13,7 @@ import tomllib
 import urllib.request
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -82,6 +83,7 @@ def _load_harness(monkeypatch, example: str):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("has_cached_harness", [False, True], ids=["fresh", "cached-harness"])
 @pytest.mark.parametrize(
     ("example", "recipe", "task_name", "expected_tasks", "expected_tags", "expected_lab", "expected_model"),
     [
@@ -156,6 +158,7 @@ def test_reef_eval_entrypoint_dispatches_the_documented_workload(
     expected_tags,
     expected_lab,
     expected_model,
+    has_cached_harness: bool,
 ) -> None:
     calls = []
 
@@ -199,10 +202,21 @@ def test_reef_eval_entrypoint_dispatches_the_documented_workload(
 
         monkeypatch.setattr(urllib.request, "urlopen", _training_releases)
 
-    # Match `python /path/to/run.py`: runpy alone neither adds the script
-    # directory to sys.path nor executes a guarded __main__ entrypoint.
+    cached_config = ModuleType("harness.config")
+    if has_cached_harness:
+        monkeypatch.setitem(sys.modules, "harness", ModuleType("harness"))
+        monkeypatch.setitem(sys.modules, "harness.config", cached_config)
+
+    # Match a fresh script process while restoring other examples' modules
+    # after this run. Adding the script directory alone leaves cached imports.
     monkeypatch.syspath_prepend(str(EXAMPLE_DIRS[example]))
-    runpy.run_path(str(EXAMPLE_DIRS[example] / "run.py"), run_name="__main__")
+    with patch.dict(sys.modules):
+        for name in tuple(sys.modules):
+            if name == "harness" or name.startswith("harness."):
+                sys.modules.pop(name)
+        runpy.run_path(str(EXAMPLE_DIRS[example] / "run.py"), run_name="__main__")
+    if has_cached_harness:
+        assert sys.modules["harness.config"] is cached_config
 
     example_root = EXAMPLE_DIRS[example]
     assert [str(task.relative_to(example_root)) for _, task, _, _ in calls] == list(expected_tasks)
