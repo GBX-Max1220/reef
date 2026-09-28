@@ -1,107 +1,150 @@
-Self-Distillation Policy Optimization (SDPO)
-============================================
+SDPO: learn from your own correct attempts
+==========================================
 
-SDPO (arXiv:2601.20802) improves a policy by letting its teacher read privileged
-feedback while the student continues to read the original question. The
-``recipes.sdpo.recipe:SDPORecipe`` cookbook recipe uses Slime's shared
-distillation backend with Section 3 defaults: an EMA teacher (rate 0.05),
-Jensen-Shannon divergence, the student's top 100 vocabulary entries plus their
-remaining probability mass, and detached per-token importance weights capped at 2.
+Self-Distillation Policy Optimization (`arXiv:2601.20802
+<https://arxiv.org/abs/2601.20802>`__) samples a question several times and
+turns the attempts that succeed into teachers for the others. The teacher is
+the model itself reading the question with a correct attempt appended. The
+student reads the question alone. The loss pulls the student's next-token
+distributions toward the teacher's on the student's own attempt. The paper
+reports that SDPO reaches GRPO's accuracy with fewer samples.
 
-Sampling and feedback
----------------------
++-------------+------------------------------------------------------------+
+| Evolves     | model weights                                              |
++-------------+------------------------------------------------------------+
+| Signal      | one report per attempt with its score and its place in the |
+|             | sampling grid                                              |
++-------------+------------------------------------------------------------+
+| Loss family | ``sdpo``                                                   |
++-------------+------------------------------------------------------------+
+| Package     | ``recipes/sdpo/``                                          |
++-------------+------------------------------------------------------------+
+| Processor   | reported feedback, one batch per sampling grid             |
++-------------+------------------------------------------------------------+
+| Needs       | GPUs, and a backend that captures tokens and log-probs     |
++-------------+------------------------------------------------------------+
+| Example     | `SDPO on SciKnowEval Chemistry                             |
+|             | <../../../recipes/sdpo/examples/sciknoweval/README.md>`__  |
++-------------+------------------------------------------------------------+
 
-Sample ``groups-per-step`` questions, each with ``rollouts-per-group`` attempts,
-from one policy release. Defaults are 32 questions and 8 attempts. Report each
-recorded inference receipt with a score and coordinates:
+What it does
+------------
 
-.. code-block:: python
+The harness samples each question several times through Reef and scores
+every attempt. It reports each attempt with its score and its place in the
+grid. The recipe waits for the whole grid and trains on it in one step.
 
-   client.report("sdpo", {
-       "references": [receipt],
-       "score": score,
-       "metadata": {
-           "step": 0,
-           "group": question_index,
-           "rollout": attempt_index,
-           "teacher_context": environment_feedback,
-       },
-   })
+.. flow::
+   :loop: the next grid is sampled from the updated weights
 
-Only the complete grid can train. Reports at an occupied coordinate are retries;
-the first accepted report wins. A step with missing or mixed policy releases,
-or different requests within one question group, is discarded and exposed in
-the processor's ``failed_steps`` status. Wait for the training release before
-sampling the next step; set ``max-staleness: 0``.
+   Rollout :: several attempts at each question
+   Report :: each attempt's score and grid position against its receipt
+   Step* :: distil the teacher that read a correct sibling onto each attempt
+   Version :: publish the updated weights to the engine
 
-The teacher sees the first successful sibling in rollout order, excluding the
-sample itself unless ``allow-own-success-as-demonstration`` is set. Success
-means score >= 0.5, matching the author's resolved actor configuration.
-Thinking blocks in demonstrations are removed.
-Section 3 disables environment feedback, so a score alone does not invent a
-textual answer or make a failed group trainable. Enable
-``include-environment-feedback`` to consume ``teacher_context``; by default a
-successful solution takes precedence over environment feedback.
+How Reef implements it
+----------------------
 
-A rollout whose teacher read nothing privileged stays in the batch with the
-plain request and a sample weight of 0 in the shared distillation row, so
-even an entirely inactive step performs its zero-gradient optimizer step. The
-reference token-means each one-sample microbatch and then averages all
-samples, inactive rows included; the weight reproduces that sequence mean
-whatever the trainer's packing, and the step's ``distill_sample_weight``
-metric is the active fraction. Teacher prompts are right-truncated at
-``max-teacher-prompt-tokens`` (10240), then the student's response token IDs
-are appended verbatim. An overlong total teacher sequence fails the batch
-rather than silently dropping part of the grid.
+The processor is ``SDPOProcessor`` on the shared ``DistillProcessor``
+(`Processors <../../developer-guide/processors.rst>`__). One batch is one
+complete grid. The teacher's request is the question with the first correct
+attempt by another rollout appended, in the reference implementation's
+words. An attempt whose question no other rollout got right keeps the plain
+request and a sample weight of 0. It stays in the step's mean and has no
+target. A grid whose attempts came from different policy versions is dropped
+and listed in the processor's status. A teacher sequence over
+``max_teacher_tokens`` fails the step.
+
+The ``sdpo`` loss family is a thin family on the Slime backend's
+distillation base (`Loss families <../../developer-guide/loss-families.rst>`__)
+and its defaults are the reference's. The teacher is a copy of the weights
+that moves 5% toward the policy after every step. The loss is the
+Jensen-Shannon divergence over the student's top 100 tokens plus one bucket
+for the rest of the vocabulary. The student picks those tokens in one forward
+before the step, so the trainer needs zero dropout. Each token's loss is
+weighted by the capped ratio between the policy and the rollout engine's
+log-probs.
+
+The report contract
+-------------------
+
+A report references one attempt and carries its score and its place in the
+grid. ``teacher_context`` is optional feedback for the teacher and the
+example leaves it empty.
+
+.. code:: json
+
+   {
+     "references": ["<receipt of the attempt>"],
+     "score": 1.0,
+     "metadata": {"step": 3, "group": 12, "rollout": 5, "teacher_context": ""}
+   }
 
 Configuration
 -------------
 
-.. code-block:: yaml
+.. config::
 
-   recipe:
-     implementation: recipes.sdpo.recipe:SDPORecipe
-     config:
-       tokenizer-path: /models/Qwen3-8B
-       groups-per-step: 32
-       rollouts-per-group: 8
-       max-staleness: 0
-       max-teacher-prompt-tokens: 10240
-       max-teacher-tokens: 18432
-       include-environment-feedback: false
-       enable-thinking: false
-   training:
-     backend: slime
-     options:
-       loss-type: custom_loss
-       use-rollout-logprobs: true
-       disable-compute-advantages-and-returns: true
-       num-steps-per-rollout: "1"
-       attention-dropout: "0.0"
-       hidden-dropout: "0.0"
-       seq-length: "18944"
-       sdpo-teacher: self
-       sdpo-divergence: jsd
-       sdpo-top-k: "100"
-       sdpo-top-k-source: student
-       sdpo-top-k-distribution: tail
-       sdpo-teacher-update-rate: "0.05"
-       sdpo-importance-sampling-level: token
-       sdpo-importance-sampling-cap: "2.0"
+   groups_per_step | 32 | questions in a grid.
+   rollouts_per_group | 8 | attempts at each question.
+   tokenizer_path | required | the served model's tokenizer directory. It renders the teacher prompt with the engine's chat template.
+   max_teacher_prompt_tokens | 10240 | the rendered teacher prompt is cut to this many tokens.
+   max_teacher_tokens | 18432 | a longer teacher sequence fails the step. Set it to the trainer's window.
+   success_reward_threshold | 0.5 | an attempt at or above this score is correct.
+   allow_own_success_as_demonstration | false | let a correct attempt read its own response.
+   remove_thinking_from_demonstration | true | strip ``<think>`` blocks from the demonstration.
+   include_environment_feedback | false | add the report's ``teacher_context`` to the teacher's prompt.
+   environment_feedback_only_without_solution | true | use the feedback only when no correct sibling exists.
+   enable_thinking | false | the chat template's thinking switch, set as the engine sampled.
+   max_staleness | 0 | accepted lag between the producing and serving version.
 
-This is a method configuration fragment, not a complete GPU deployment. The
-backend uses an extra student forward to select vocabulary support, followed by
-the teacher forward. Context parallelism must be 1. Only one optimizer update
-per sampling step is supported; the sequential minibatch updates in the paper's
-Section 4 are not implemented by this recipe.
+The Slime driver takes ``--loss-type custom_loss`` and
+``--use-rollout-logprobs`` and ``--disable-compute-advantages-and-returns``.
+The family adds its own flags:
 
-The existing teacher implementation keeps its EMA accumulator on the host and
-does not checkpoint it. Restarting from actor weights reseeds that accumulator,
-so interrupted runs must not be presented as exact continuations of a paper run.
-SDFT retains its previous teacher-selected, renormalized top-K and sequence
-importance-weight defaults.
+.. config::
 
-`SDPO on SciKnowEval Chemistry <../../../recipes/sdpo/examples/sciknoweval/README.md>`_
-runs the paper's generalization sweep through Reef on Qwen3-8B. The paper also
-reports OLMo-3-7B-Instruct, which needs OLMo support in the training backend
-first; Reef issue #428 tracks the benchmark work.
+   --sdpo-teacher | self | ``self`` is the model itself. ``separate`` is another checkpoint set by ``--sdpo-teacher-checkpoint``.
+   --sdpo-divergence | jsd | ``forward``, ``reverse`` or ``jsd``. ``--sdpo-jsd-beta`` is the teacher's weight in the mixture and defaults to 0.5.
+   --sdpo-top-k | 100 | tokens per position the divergence is computed on. 0 keeps the whole distribution.
+   --sdpo-top-k-source | student | who picks the tokens, ``student`` or ``teacher``.
+   --sdpo-top-k-distribution | tail | ``tail`` keeps the rest of the vocabulary as one bucket. ``renormalized`` conditions on the picked tokens.
+   --sdpo-teacher-update-rate | 0.05 | fraction of the policy mixed into the teacher after every step. 0 freezes the initial weights.
+   --sdpo-importance-sampling-level | token | ``token`` weights each token by its own ratio. ``sequence`` averages the ratio over the response.
+   --sdpo-importance-sampling-cap | 2.0 | cap of the importance weight. 0 disables the correction.
+   --sdpo-skip-response-tokens | 0 | response tokens at the start of every attempt left out of the loss.
+
+Run the example
+---------------
+
+The `example <../../../recipes/sdpo/examples/sciknoweval>`__ trains Qwen3-8B
+on the Chemistry split of SciKnowEval on four GPUs. Each step samples 32
+questions eight times and the test split is scored every five steps. The
+example's README describes the protocol.
+
+.. code:: bash
+
+   cd recipes/sdpo/examples/sciknoweval
+   hf download Qwen/Qwen3-8B --local-dir ~/models/Qwen3-8B
+   ./run.sh
+
+Results
+-------
+
+.. image:: ../../assets/sdpo/learning-curve.png
+   :alt: Test avg@8 against optimizer steps
+
+One run of 100 steps. Test accuracy goes from 41.2% to 74.4% at step 75 and
+ends at 71.7%. The rollouts stay diverse and a question seen a second time is
+answered no better than the rest of the grid.
+
+Related guides
+--------------
+
+- `Inference and feedback quickstart <../../getting-started/quickstart.rst>`__:
+  learn the request, receipt, and report workflow.
+- `Train model weights from agent feedback <../evolve-your-model.rst>`__:
+  set up the GPU stack and inspect published updates.
+- `Loss families <../../developer-guide/loss-families.rst>`__: how a family
+  such as ``sdpo`` plugs into the Slime backend, and the distillation base
+  it is built on.
