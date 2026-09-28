@@ -533,9 +533,9 @@ def render_install_script(
     # bytes on disk again: the current check hashes the other files, and the release file names the release.
     unbound = [relative for relative in ordered if relative not in bindings]
     if unbound == ordered:
-        current_stream, current_checksum, current_stream_lines = "compose_stream", "CHECKSUM", []
+        current_stream_function, current_checksum_variable, current_stream_lines = "compose_stream", "CHECKSUM", []
     else:
-        current_stream, current_checksum = "current_stream", "CURRENT_CHECKSUM"
+        current_stream_function, current_checksum_variable = "current_stream", "CURRENT_CHECKSUM"
         current_stream_lines = [
             "# The current check's stream, as baked into CURRENT_CHECKSUM: the same stream without the",
             "# served files the model binding below rewrites on every run.",
@@ -617,10 +617,10 @@ def render_install_script(
         "if "
         + " && ".join(f'[ -f "$DEST/{_double_quoted(relative)}" ]' for relative in (HARNESS_RELEASE_FILE, *ordered))
         + "; then",
-        f'    current="$({current_stream} | sha256)"',
+        f'    current="$({current_stream_function} | sha256)"',
         f'    current_release_checksum="$(release_info_tool static "$DEST/{HARNESS_RELEASE_FILE}")"',
         "fi",
-        f'if [ "$current" = "${current_checksum}" ] && [ "$current_release_checksum" = "$RELEASE_FILE_CHECKSUM" ]; then',
+        f'if [ "$current" = "${current_checksum_variable}" ] && [ "$current_release_checksum" = "$RELEASE_FILE_CHECKSUM" ]; then',
         '    echo "reef: composition already current"',
         "else",
         f'    echo "reef: writing the harness tree ({len(ordered)} file{"" if len(ordered) == 1 else "s"}) to $DEST"',
