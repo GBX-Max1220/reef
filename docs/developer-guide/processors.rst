@@ -56,24 +56,10 @@ invariant failure).
 no-update default that ingests for audit and never becomes ready. Recipes
 can implement their own lifecycle or reuse one of the feedback engines below.
 
-Batch identity
---------------
-
-The shared ``DataProcessor.build_batch()`` assigns the final ``batch_id``
-before calling an assembly hook. Automatic batches use
-``<scenario>:batch:<number>``; instruction batches use
-``<scenario>:instruction:<request id>``. Recipes receive the ID as a string
-and preserve it in the returned ``TrainingBatch``. Returning a different ID
-raises ``ValueError``. Method-specific identifiers, such as TTTD's grid step
-or CORAL's parent, remain in item metadata and method metrics.
-
-Repeated calls while a batch is reserved return the same batch and ID.
-Releasing a batch without consuming it allows reconstruction: an automatic
-batch gets a new number, while the same instruction retains its request-based
-ID. ``self.batch_number`` counts construction attempts from one for each
-processor instance, including failed attempts; it is available for diagnostics
-and resets when the processor is recreated. It is not a durable training step
-or a globally unique identifier. Recovery tracks consumed record IDs.
+``DataProcessor.build_batch()`` assigns the final ``batch_id`` before calling
+an assembly hook. Pass this string unchanged to ``TrainingBatch(batch_id, items)``;
+returning a different ID raises ``ValueError``. Repeated calls while a batch
+is reserved return the same batch and ID.
 
 Explicit manual training
 ------------------------
