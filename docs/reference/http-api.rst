@@ -719,7 +719,12 @@ Harness artifacts
 |                                | binding at the address the request reached (a gateway in      |
 |                                | front names it in ``x-forwarded-host`` and                    |
 |                                | ``x-forwarded-proto``), the token filled from ``REEF_TOKEN``  |
-|                                | when the script runs                                          |
+|                                | when the script runs; it records the sha256 of each tree file |
+|                                | it wrote (for pi's ``settings.json``, the value of each key   |
+|                                | but pi's own preferences) and that address in                 |
+|                                | ``~/.reef/installs``, and writes the ``reef-<adapter>``       |
+|                                | wrapper beside that record, which checks it before a session  |
+|                                | starts                                                        |
 +--------------------------------+---------------------------------------------------------------+
 | ``GET /reef/harness/adapters`` | ``{adapters}`` — every harness adapter this process resolves, |
 |                                | each with ``name``, ``binary``, ``trajectory_format``,        |
@@ -731,7 +736,8 @@ The first three are read-only and take ``x-reef-scenario``. Install also require
 ``dsh``, ``hermes``, or an external descriptor. Only an adapter whose descriptor
 declares an install section can be named here: ``native`` and ``terminus`` ship
 with reef and pin no vendor binary, so they answer HTTP 400 rather than a
-script. If install omits ``x-reef-scenario``, Reef creates a scenario with a
+script, naming ``GET /reef/harness`` for the tree and ``POST /reef/train`` for
+a request. If install omits ``x-reef-scenario``, Reef creates a scenario with a
 generated ``harness-`` name and embeds that assignment in the wrapper script;
 when exactly one configured recipe serves harness files, it selects that recipe
 automatically.
