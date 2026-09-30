@@ -630,12 +630,12 @@ this symptom: the record phase raises on its first call and ``run.py``
 exits with the upstream error before any evolve step runs.
 
 A model that answers all three tasks correctly still batches one step per
-report, but both gate sides then score every task, so the gate can only tie
-and nothing publishes: ``GET /reef/harness`` keeps serving the seed and the
-step's row reads ``rejected`` or ``skipped``. Passing is not the same as
-nothing batched, so ``run.py`` counts the reports it submitted, not the ones
-that failed, waits for every step those reports triggered, and prints how
-many it batched and how many of them failed.
+report. Evaluation runs the tasks again on the current and candidate trees,
+so passing the initial tasks does not determine whether a candidate will
+win, tie, or lose. A step publishes only when its candidate wins; rejected
+or skipped steps leave the served tree unchanged. ``run.py`` counts all
+submitted reports, waits for the steps they triggered up to its deadline,
+and prints how many reports it batched and how many of them failed.
 
 Install the published tree
 --------------------------
