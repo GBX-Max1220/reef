@@ -5,14 +5,22 @@ emits it as YAML, and the ``env`` target as ``.env`` lines, where hermes
 reads a custom provider's key. It also writes the ``.no-bundled-skills`` marker, so an
 episode carries only the tree's skills instead of hermes's bundled catalog;
 synthesizes the ``name`` and ``description`` frontmatter hermes requires on a
-SKILL.md the node text left bare, under both skill roots; and, for every
-rendered plugin, writes the ``plugin.yaml`` manifest and grants the plugin
-in ``config.yaml`` (``plugins.enabled`` and the ``tools.override``
+SKILL.md the node text left bare, under both skill roots; adds the commands
+root to ``skills.external_dirs`` after the tree's own entries, so a tree
+that sets the list still has its commands; and, for every rendered plugin,
+writes the ``plugin.yaml`` manifest and grants the plugin in
+``config.yaml`` (``plugins.enabled`` and the ``tools.override``
 capability), since hermes discovers plugins but loads none without consent.
+Rules render to ``SOUL.md``, which hermes reads as the agent's identity and
+seeds with its own only while the file is absent, so the rules follow that
+default identity instead of replacing it.
 
 The traps a mutated config could reopen: the scanner download, the session
-title call, and the snapshot the reader parses. A composition that flips any
-of them is rejected at render, the same gate that rejects an invalid node.
+title call, the background review and the curator that write skills into the
+tree, and the snapshot the reader parses. A composition that flips any of
+them, puts a value that is not an object where a section holding one
+belongs, or puts a value that is not a list of strings where Reef adds a
+name, is rejected at render, the same check that rejects an invalid node.
 
 Every model call stays on Reef's model binding. The binding writes the
 ``model`` section (a ``custom`` provider, the endpoint, the model and a
@@ -56,6 +64,27 @@ ENV_PATH = "hermes/.env"
 _MARKER = "hermes/.no-bundled-skills"
 _PLUGINS = "hermes/plugins/"
 _SKILL_ROOTS = ("hermes/skills/", "hermes-commands/")
+# The commands root beside the home: HERMES_HOME/.. in an episode, and REEF_HARNESS_DEST, the install root, in a
+# reef-hermes session, whose home is a temp copy. hermes skips an entry that names no directory, such as the second
+# one where REEF_HARNESS_DEST is unset. A config node's list replaces the one below it, so both follow the tree's own
+# skills.external_dirs, which hermes reads as one entry when it is a string.
+COMMAND_ROOTS = ("${HERMES_HOME}/../hermes-commands", "${REEF_HARNESS_DEST}/hermes-commands")
+SOUL_PATH = "hermes/SOUL.md"
+#: The identity hermes writes to SOUL.md on first run when the file is absent (DEFAULT_SOUL_MD in
+#: hermes_cli/default_soul.py of the pinned v2026.8.31; the real hermes smoke checks it against the install).
+DEFAULT_IDENTITY = (
+    "You are Hermes Agent, built by Nous Research. Be direct: match the "
+    "length of your reply to the weight of the ask \u2014 a one-line question "
+    "gets a one-line answer, and finished work gets a short report of what "
+    "changed, what's verified, and what's left, never a replay of the "
+    'process. No filler ("Great question," "I\'d be happy to"), no '
+    "restating the request back, no re-summarizing what you already said, "
+    "no narrating tool calls the user can see. Plain claims over "
+    "adjectives; when unsure, say so plainly. Agree because it's right, "
+    "not because the user said it. Depth is earned \u2014 give it when the "
+    "user asks for detail, teaches, or the stakes demand it, not by "
+    "default."
+)
 
 #: The model keys Reef's binding writes, and among them its credential.
 BINDING_MODEL_KEYS = ("api_key", "base_url", "default", "provider")
@@ -118,14 +147,42 @@ def _with_frontmatter(path: str, text: str) -> str:
     return "---\n" + yaml.dump(header, sort_keys=False, default_flow_style=False, allow_unicode=True) + "---\n" + text
 
 
+def nested_setting(config: dict[str, Any], *keys: str) -> object:
+    """The value at ``keys`` in the config, None when a section on the way is absent or is not an object."""
+    value: object = config
+    for key in keys:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value
+
+
+def string_list(value: object, key: str) -> list[str]:
+    """The strings at ``key``, empty when it is absent; a string or any other value is refused, not read."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise RenderError(f"hermes composition must keep {key} a list of strings")
+    return value
+
+
 def _granted(config: dict[str, Any], plugins: list[str]) -> dict[str, Any]:
-    section = dict(config.get("plugins") or {})
-    enabled = [name for name in section.get("enabled") or [] if isinstance(name, str)]
+    section = config.get("plugins")
+    entries = section.get("entries") if isinstance(section, dict) else None
+    if (
+        not isinstance(section, dict | None)
+        or not isinstance(entries, dict | None)
+        or any(not isinstance((entries or {}).get(name), dict | None) for name in plugins)
+    ):
+        raise RenderError(
+            "hermes composition must keep plugins, plugins.entries and each rendered plugin's entry objects, "
+            "so the plugin can be granted"
+        )
+    section = dict(section or {})
+    enabled = string_list(section.get("enabled"), "plugins.enabled")
     section["enabled"] = enabled + [name for name in plugins if name not in enabled]
-    entries = dict(section.get("entries") or {})
+    entries = dict(entries or {})
     for name in plugins:
         entry = dict(entries.get(name) or {})
-        granted = [item for item in entry.get("granted_capabilities") or [] if isinstance(item, str)]
+        granted = string_list(entry.get("granted_capabilities"), f"plugins.entries.{name}.granted_capabilities")
         entry["granted_capabilities"] = granted + ["tools.override"] * ("tools.override" not in granted)
         entries[name] = entry
     section["entries"] = entries
@@ -217,16 +274,33 @@ def check_body(body: object, where: str, refusal: str) -> None:
 
 def finalize_render(files: dict[str, str]) -> dict[str, str]:
     config = json.loads(files[_CONFIG])
-    if (config.get("approval") or {}).get("tirith_enabled") is not False:
-        raise RenderError("hermes composition must keep approval.tirith_enabled false for benchmark episodes")
-    if ((config.get("auxiliary") or {}).get("title_generation") or {}).get("enabled") is not False:
+    soul = files.get(SOUL_PATH)
+    if soul is not None and not soul.startswith(DEFAULT_IDENTITY):
+        # A rules entry adds to the agent's identity; written alone, it would be all of it.
+        files[SOUL_PATH] = f"{DEFAULT_IDENTITY}\n\n{soul}"
+    if nested_setting(config, "security", "tirith_enabled") is not False:
+        raise RenderError("hermes composition must keep security.tirith_enabled false for benchmark episodes")
+    if nested_setting(config, "auxiliary", "title_generation", "enabled") is not False:
         raise RenderError(
             "hermes composition must keep auxiliary.title_generation.enabled false for benchmark episodes"
         )
-    if (config.get("sessions") or {}).get("write_json_snapshots") is not True:
+    memory_nudge_interval = nested_setting(config, "memory", "nudge_interval")
+    skill_nudge_interval = nested_setting(config, "skills", "creation_nudge_interval")
+    if memory_nudge_interval != 0 or skill_nudge_interval != 0:
+        raise RenderError(
+            "hermes composition must keep memory.nudge_interval and skills.creation_nudge_interval 0, "
+            "so no background review makes model calls or writes skills"
+        )
+    if nested_setting(config, "curator", "enabled") is not False:
+        raise RenderError("hermes composition must keep curator.enabled false, so the curator leaves the skills alone")
+    if nested_setting(config, "sessions", "write_json_snapshots") is not True:
         raise RenderError(
             "hermes composition must keep sessions.write_json_snapshots true so Reef can read the trajectory"
         )
+    # skills is an object here: the nudge check above read skills.creation_nudge_interval from it.
+    tree_dirs = nested_setting(config, "skills", "external_dirs")
+    external_dirs = string_list([tree_dirs] if isinstance(tree_dirs, str) else tree_dirs, "skills.external_dirs")
+    config["skills"]["external_dirs"] = external_dirs + [root for root in COMMAND_ROOTS if root not in external_dirs]
     check_model_route(config)
     plugins = sorted(
         path[len(_PLUGINS) :].split("/")[0]
