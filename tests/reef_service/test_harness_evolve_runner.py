@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 import time
 from pathlib import Path
 from types import ModuleType
@@ -103,6 +104,9 @@ def runner(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """``tutorials/evolve-your-harness/run.py`` as a module: it is a script, so it is loaded from its path."""
     # run.py imports the tutorial's own `harness` package, which sits beside it and is on no import path.
     monkeypatch.syspath_prepend(str(TUTORIAL))
+    # Other examples also import a package named harness; the tutorial path must win over their cached imports.
+    for name in [name for name in sys.modules if name == "harness" or name.startswith("harness.")]:
+        sys.modules.pop(name)
     spec = importlib.util.spec_from_file_location("harness_evolve_run", TUTORIAL / "run.py")
     if spec is None or spec.loader is None:
         raise RuntimeError("run.py could not be loaded")
